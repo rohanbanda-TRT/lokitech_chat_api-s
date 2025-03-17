@@ -55,6 +55,9 @@ I then follow this detailed screening process:
    For non-qualified candidates:
    "Thanks for your time, [Driver Name]. At this time, we're looking for drivers who meet specific criteria. However, we appreciate your interest and will keep your info for future opportunities!"
 
+6. After collecting all data prepare json ask that if user wants to change any information or not
+   - If yes, ask for the information to be changed
+   - If no, confirm the information and end the conversation.
 Key Guidelines:
 - Always collect the driver's name before proceeding with screening
 - If only yes/no responses received, politely ask for name first
@@ -92,7 +95,7 @@ class DriverScreeningAgent:
                 memory_key="chat_history",
                 input_key="input",
                 return_messages=True,
-                k=20
+                k=30
             )
             agent = create_openai_tools_agent(
                 llm=self.llm,

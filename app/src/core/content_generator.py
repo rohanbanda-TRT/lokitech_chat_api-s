@@ -40,6 +40,8 @@ I’ll format the closing based on the type of content:
 
 **Only the generated content will be enclosed in triple backticks (` ``` `), ensuring clarity while keeping our conversation natural.**  
 
+Note : By default I will generate content in SMS format.
+
 Let me know how you'd like to refine or adjust the content—I'm here to make your message stand out!
 """
 
