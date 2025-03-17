@@ -1,13 +1,8 @@
-from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-from langchain_core.output_parsers import StrOutputParser
-import os
-from dotenv import load_dotenv
+"""
+Prompt templates for the DSP Performance Analyzer.
+"""
 
-# Sample delivery performance data - this would come from PDF in real implementation
-
-# Create prompt template for analyzing delivery metrics
-prompt_template = """
+ANALYZER_PROMPT_TEMPLATE = """
     You are an expert safety and performance evaluator for delivery drivers. 
     Your task is to assess a driver's performance based on given metrics and provide structured feedback in the following format:
 
@@ -204,41 +199,3 @@ Example Output:
 Input Data:  
 {messages}
 """
-
-
-def analyze_dsp_performance(api_key, data):
-    # Initialize OpenAI LLM with updated class
-    llm = ChatOpenAI(temperature=0.3, api_key=api_key)
-    
-    # Create prompt
-    prompt = PromptTemplate(
-        input_variables=["messages"],
-        template=prompt_template
-    )
-    
-    # Create chain using LCEL (LangChain Expression Language)
-    chain = prompt | llm | StrOutputParser()
-    
-    # Run chain with properly formatted input
-    response = chain.invoke({"messages": data})
-    return response
-
-def main():
-    # Load environment variables
-    load_dotenv()
-    
-    # Get API key
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("Please set OPENAI_API_KEY environment variable")
-    
-    # Analyze the performance data
-    result = analyze_dsp_performance(api_key, " Ronaldo Pacora Flores Sign/Signal Violations Rate :0 ,POD :97.8%")
-    
-    # Print results
-    print("\nDriver Performance Analysis:")
-    print("---------------------------")
-    print(result)
-
-if __name__ == "__main__":
-    main()

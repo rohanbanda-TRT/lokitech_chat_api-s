@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_API_KEY: str = "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"
     LANGSMITH_PROJECT: str = "Report-Generation"
+    
+    # MongoDB settings
+    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "lokitech_db"
 
     class Config:
         env_file = ".env"
