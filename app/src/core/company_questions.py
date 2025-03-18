@@ -13,13 +13,14 @@ class CompanyQuestionsManager:
         self.collection = self.db.get_collection("company_questions")
         logger.info("CompanyQuestionsManager initialized")
     
-    def save_questions(self, company_id: str, questions: List[Dict[str, Any]]) -> bool:
+    def save_questions(self, company_id: str, questions: List[Dict[str, Any]], append: bool = True) -> bool:
         """
         Save company-specific questions to the database
         
         Args:
             company_id: The unique identifier for the company
             questions: List of question objects with question_text and required fields
+            append: If True, append new questions to existing ones; if False, replace them
             
         Returns:
             bool: True if successful, False otherwise
@@ -27,13 +28,28 @@ class CompanyQuestionsManager:
         try:
             logger.info(f"Attempting to save questions for company_id: {company_id}")
             logger.info(f"Questions to save: {questions}")
+            logger.info(f"Append mode: {append}")
             
             # Check if company already has questions
             existing = self.collection.find_one({"company_id": company_id})
             
-            if existing:
-                # Update existing questions
-                logger.info(f"Updating existing questions for company_id: {company_id}")
+            if existing and append:
+                # Get existing questions and append new ones
+                existing_questions = existing.get("questions", [])
+                logger.info(f"Found {len(existing_questions)} existing questions")
+                
+                # Combine existing questions with new ones
+                combined_questions = existing_questions + questions
+                logger.info(f"Combined questions count: {len(combined_questions)}")
+                
+                # Update with combined questions
+                self.collection.update_one(
+                    {"company_id": company_id},
+                    {"$set": {"questions": combined_questions}}
+                )
+            elif existing:
+                # Replace existing questions
+                logger.info(f"Replacing existing questions for company_id: {company_id}")
                 self.collection.update_one(
                     {"company_id": company_id},
                     {"$set": {"questions": questions}}
@@ -101,18 +117,19 @@ class CompanyQuestionsManager:
             current_questions[question_index] = updated_question
             
             # Save the updated questions
-            return self.save_questions(company_id, current_questions)
+            return self.save_questions(company_id, current_questions, append=False)
         except Exception as e:
             logger.error(f"Error updating question: {e}")
             return False
     
-    def delete_question(self, company_id: str, question_index: int) -> bool:
+    def delete_question(self, company_id: str, question_index: int, append: bool = False) -> bool:
         """
         Delete a specific question for a company
         
         Args:
             company_id: The unique identifier for the company
             question_index: The index of the question to delete (0-based)
+            append: If True, append new questions to existing ones; if False, replace them
             
         Returns:
             bool: True if successful, False otherwise
@@ -133,7 +150,7 @@ class CompanyQuestionsManager:
             logger.info(f"Deleted question: {deleted_question}")
             
             # Save the updated questions
-            return self.save_questions(company_id, current_questions)
+            return self.save_questions(company_id, current_questions, append=append)
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
             return False

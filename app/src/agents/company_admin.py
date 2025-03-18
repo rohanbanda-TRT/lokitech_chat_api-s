@@ -22,6 +22,7 @@ class Question(BaseModel):
 class CompanyQuestions(BaseModel):
     company_id: str = Field(description="Unique identifier for the company")
     questions: List[Question] = Field(description="List of screening questions for driver candidates")
+    append: bool = Field(default=True, description="Whether to append the question or replace it")
 
 class UpdateQuestionInput(BaseModel):
     company_id: str = Field(description="Unique identifier for the company")
@@ -31,6 +32,7 @@ class UpdateQuestionInput(BaseModel):
 class DeleteQuestionInput(BaseModel):
     company_id: str = Field(description="Unique identifier for the company")
     question_index: int = Field(description="The index of the question to delete (0-based)")
+    append: bool = Field(default=False, description="Whether to append the question or replace it")
 
 class CompanyAdminAgent:
     def __init__(self, api_key: str):
@@ -75,7 +77,7 @@ class CompanyAdminAgent:
         
         logger.info("CompanyAdminAgent initialized with JsonOutputParser")
     
-    def _save_questions(self, input_str: str) -> str:
+    def _save_questions(self, input_str: str, append: bool = True) -> str:
         """Tool function to save questions to the database"""
         try:
             logger.info(f"Attempting to save questions with input: {input_str}")
@@ -111,7 +113,8 @@ class CompanyAdminAgent:
                         # Save to database
                         success = self.questions_manager.save_questions(
                             validated_data.company_id, 
-                            questions_dict
+                            questions_dict,
+                            append=append
                         )
                         
                         if success:
@@ -198,7 +201,7 @@ class CompanyAdminAgent:
             logger.error(f"Unexpected error in _update_question: {e}")
             return f"Error: {str(e)}"
     
-    def _delete_question(self, input_str: str) -> str:
+    def _delete_question(self, input_str: str, append: bool = False) -> str:
         """Tool function to delete a specific question"""
         try:
             logger.info(f"Attempting to delete question with input: {input_str}")
@@ -227,7 +230,8 @@ class CompanyAdminAgent:
                 # Delete the question
                 success = self.questions_manager.delete_question(
                     validated_data.company_id,
-                    validated_data.question_index
+                    validated_data.question_index,
+                    append=append
                 )
                 
                 if success:
