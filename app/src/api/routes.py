@@ -4,6 +4,7 @@ from ..agents.performance_analyzer import PerformanceAnalyzerAgent
 from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
 from typing import Optional, List
+from ..core.company_questions import CompanyQuestionsManager
 
 router = APIRouter()
 settings = get_settings()
@@ -163,8 +164,6 @@ async def company_admin(request: CompanyAdminRequest):
          description="Retrieve the list of questions for a specific company")
 async def get_company_questions(company_id: str):
     try:
-        from ..core.company_questions import CompanyQuestionsManager
-        
         questions_manager = CompanyQuestionsManager()
         questions = questions_manager.get_questions(company_id)
         
@@ -181,10 +180,8 @@ async def get_company_questions(company_id: str):
          description="Save a list of questions for a specific company")
 async def save_company_questions(request: CompanyQuestionsRequest):
     try:
-        from ..core.company_questions import CompanyQuestionsManager
-        
         questions_manager = CompanyQuestionsManager()
-        questions = [q.dict() for q in request.questions]
+        questions = [q.model_dump() for q in request.questions]
         success = questions_manager.save_questions(request.company_id, questions)
         
         if not success:

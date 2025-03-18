@@ -1,20 +1,25 @@
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
 from ..core.company_questions import CompanyQuestionsManager
 import json
 from ..prompts.driver_screening import DRIVER_SCREENING_PROMPT_TEMPLATE
+from ..utils.session_manager import get_session_manager
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class DriverScreeningAgent:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session_memories = {}
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
         self.questions_manager = CompanyQuestionsManager()
+        self.session_manager = get_session_manager()
         self.tools = [
             Tool(
                 name="driver_screening",
@@ -49,55 +54,31 @@ class DriverScreeningAgent:
         
         return "\n".join(formatted_questions)
     
-    def get_session_executor(self, session_id: str, company_id: str = None) -> AgentExecutor:
+    def _create_prompt(self, company_id: str = None) -> ChatPromptTemplate:
         """
-        Get or create a session-specific agent executor
+        Create a prompt with company-specific questions if available
         
         Args:
-            session_id: Unique session identifier
             company_id: Optional company ID to get company-specific questions
             
         Returns:
-            AgentExecutor for the session
+            Formatted prompt template
         """
-        if session_id not in self.session_memories:
-            # Format the prompt with company-specific questions if available
-            company_questions_text = "   - No company-specific questions defined. Skip this section."
-            if company_id:
-                company_questions_text = self._get_company_specific_questions_text(company_id)
-            
-            prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.format(
-                company_specific_questions=company_questions_text
-            )
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", prompt_text),
-                MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
-            ])
-            
-            memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                input_key="input",
-                return_messages=True,
-                k=30
-            )
-            
-            agent = create_openai_tools_agent(
-                llm=self.llm,
-                tools=self.tools,
-                prompt=prompt
-            )
-            
-            self.session_memories[session_id] = AgentExecutor(
-                agent=agent,
-                tools=self.tools,
-                memory=memory,
-                verbose=True
-            )
+        # Format the prompt with company-specific questions if available
+        company_questions_text = "   - No company-specific questions defined. Skip this section."
+        if company_id:
+            company_questions_text = self._get_company_specific_questions_text(company_id)
         
-        return self.session_memories[session_id]
+        prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.format(
+            company_specific_questions=company_questions_text
+        )
+        
+        return ChatPromptTemplate.from_messages([
+            ("system", prompt_text),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
 
     def process_message(self, user_input: str, session_id: str, company_id: str = None) -> str:
         """
@@ -111,8 +92,25 @@ class DriverScreeningAgent:
         Returns:
             Response from the agent
         """
-        executor = self.get_session_executor(session_id, company_id)
+        logger.info(f"Processing message for session_id: {session_id}, company_id: {company_id}")
+        
+        # Create a unique session ID that includes the company_id to ensure
+        # we get the right prompt with company-specific questions
+        unique_session_id = f"{session_id}_{company_id}" if company_id else session_id
+        
+        # Create the prompt with company-specific questions
+        prompt = self._create_prompt(company_id)
+        
+        # Get or create session executor using the session manager
+        executor = self.session_manager.get_or_create_session(
+            session_id=unique_session_id,
+            llm=self.llm,
+            tools=self.tools,
+            prompt=prompt
+        )
+        
         response = executor.invoke({"input": user_input})
+        logger.info("Message processed successfully")
         return response["output"]
 
 def main():

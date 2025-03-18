@@ -1,15 +1,15 @@
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import JsonOutputParser
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union, Tuple
 from pydantic import BaseModel, Field
 import json
 import logging
 from ..core.company_questions import CompanyQuestionsManager
 from ..prompts.company_admin import COMPANY_ADMIN_PROMPT
+from ..utils.session_manager import get_session_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -23,12 +23,21 @@ class CompanyQuestions(BaseModel):
     company_id: str = Field(description="Unique identifier for the company")
     questions: List[Question] = Field(description="List of screening questions for driver candidates")
 
+class UpdateQuestionInput(BaseModel):
+    company_id: str = Field(description="Unique identifier for the company")
+    question_index: int = Field(description="The index of the question to update (0-based)")
+    updated_question: Question = Field(description="The updated question")
+
+class DeleteQuestionInput(BaseModel):
+    company_id: str = Field(description="Unique identifier for the company")
+    question_index: int = Field(description="The index of the question to delete (0-based)")
+
 class CompanyAdminAgent:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session_memories = {}
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
         self.questions_manager = CompanyQuestionsManager()
+        self.session_manager = get_session_manager()
         
         # Set up JSON output parser with Pydantic schema
         self.parser = JsonOutputParser(pydantic_object=CompanyQuestions)
@@ -43,6 +52,16 @@ class CompanyAdminAgent:
                 name="get_questions",
                 description="Retrieve existing questions for a company",
                 func=self._get_questions
+            ),
+            Tool(
+                name="update_question",
+                description="Update a specific question for a company",
+                func=self._update_question
+            ),
+            Tool(
+                name="delete_question",
+                description="Delete a specific question for a company",
+                func=self._delete_question
             )
         ]
         
@@ -129,28 +148,101 @@ class CompanyAdminAgent:
             logger.error(f"Error retrieving questions: {e}")
             return f"Error retrieving questions: {str(e)}"
     
-    def get_session_executor(self, session_id: str) -> AgentExecutor:
-        """Get or create a session-specific agent executor"""
-        if session_id not in self.session_memories:
-            logger.info(f"Creating new session executor for session_id: {session_id}")
-            memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                input_key="input",
-                return_messages=True,
-                k=30
-            )
-            agent = create_openai_tools_agent(
-                llm=self.llm,
-                tools=self.tools,
-                prompt=self.prompt
-            )
-            self.session_memories[session_id] = AgentExecutor(
-                agent=agent,
-                tools=self.tools,
-                memory=memory,
-                verbose=True
-            )
-        return self.session_memories[session_id]
+    def _update_question(self, input_str: str) -> str:
+        """Tool function to update a specific question"""
+        try:
+            logger.info(f"Attempting to update question with input: {input_str}")
+            
+            # Parse the input data
+            try:
+                # If input is a string, try to parse it as JSON
+                if isinstance(input_str, str):
+                    data = json.loads(input_str)
+                # If input is already a dict, use it directly
+                elif isinstance(input_str, dict):
+                    data = input_str
+                else:
+                    logger.error(f"Unexpected input type: {type(input_str)}")
+                    return f"Error: Unexpected input type: {type(input_str)}"
+                
+                logger.info(f"Parsed data: {data}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                return f"Error: Invalid JSON format - {str(e)}"
+            
+            # Validate with Pydantic
+            try:
+                validated_data = UpdateQuestionInput.model_validate(data)
+                
+                # Convert to dict for database storage
+                updated_question_dict = validated_data.updated_question.model_dump()
+                
+                # Update the question
+                success = self.questions_manager.update_question(
+                    validated_data.company_id,
+                    validated_data.question_index,
+                    updated_question_dict
+                )
+                
+                if success:
+                    logger.info(f"Successfully updated question at index {validated_data.question_index} for company {validated_data.company_id}")
+                    return f"Successfully updated question at index {validated_data.question_index} for company {validated_data.company_id}"
+                else:
+                    logger.error("Failed to update question")
+                    return "Failed to update question. Please check if the company ID and question index are valid."
+            except Exception as e:
+                logger.error(f"Error validating data: {e}")
+                return f"Error validating data: {str(e)}"
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in _update_question: {e}")
+            return f"Error: {str(e)}"
+    
+    def _delete_question(self, input_str: str) -> str:
+        """Tool function to delete a specific question"""
+        try:
+            logger.info(f"Attempting to delete question with input: {input_str}")
+            
+            # Parse the input data
+            try:
+                # If input is a string, try to parse it as JSON
+                if isinstance(input_str, str):
+                    data = json.loads(input_str)
+                # If input is already a dict, use it directly
+                elif isinstance(input_str, dict):
+                    data = input_str
+                else:
+                    logger.error(f"Unexpected input type: {type(input_str)}")
+                    return f"Error: Unexpected input type: {type(input_str)}"
+                
+                logger.info(f"Parsed data: {data}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                return f"Error: Invalid JSON format - {str(e)}"
+            
+            # Validate with Pydantic
+            try:
+                validated_data = DeleteQuestionInput.model_validate(data)
+                
+                # Delete the question
+                success = self.questions_manager.delete_question(
+                    validated_data.company_id,
+                    validated_data.question_index
+                )
+                
+                if success:
+                    logger.info(f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}")
+                    return f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}"
+                else:
+                    logger.error("Failed to delete question")
+                    return "Failed to delete question. Please check if the company ID and question index are valid."
+            except Exception as e:
+                logger.error(f"Error validating data: {e}")
+                return f"Error validating data: {str(e)}"
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in _delete_question: {e}")
+            return f"Error: {str(e)}"
     
     def process_message(self, user_input: str, session_id: str, company_id: Optional[str] = None) -> str:
         """
@@ -165,7 +257,14 @@ class CompanyAdminAgent:
             Response from the agent
         """
         logger.info(f"Processing message for session_id: {session_id}, company_id: {company_id}")
-        executor = self.get_session_executor(session_id)
+        
+        # Get or create session executor using the session manager
+        executor = self.session_manager.get_or_create_session(
+            session_id=session_id,
+            llm=self.llm,
+            tools=self.tools,
+            prompt=self.prompt
+        )
         
         # If company_id is provided and this is the first message, include it
         if company_id and "company_id" not in str(executor.memory.chat_memory.messages):

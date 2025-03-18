@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
 import logging
 from .database import get_db
@@ -72,6 +72,71 @@ class CompanyQuestionsManager:
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
             return []
+    
+    def update_question(self, company_id: str, question_index: int, updated_question: Dict[str, Any]) -> bool:
+        """
+        Update a specific question for a company
+        
+        Args:
+            company_id: The unique identifier for the company
+            question_index: The index of the question to update (0-based)
+            updated_question: The updated question object
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Attempting to update question at index {question_index} for company_id: {company_id}")
+            logger.info(f"Updated question: {updated_question}")
+            
+            # Get current questions
+            current_questions = self.get_questions(company_id)
+            
+            # Check if index is valid
+            if not current_questions or question_index < 0 or question_index >= len(current_questions):
+                logger.error(f"Invalid question index: {question_index}")
+                return False
+            
+            # Update the question at the specified index
+            current_questions[question_index] = updated_question
+            
+            # Save the updated questions
+            return self.save_questions(company_id, current_questions)
+        except Exception as e:
+            logger.error(f"Error updating question: {e}")
+            return False
+    
+    def delete_question(self, company_id: str, question_index: int) -> bool:
+        """
+        Delete a specific question for a company
+        
+        Args:
+            company_id: The unique identifier for the company
+            question_index: The index of the question to delete (0-based)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Attempting to delete question at index {question_index} for company_id: {company_id}")
+            
+            # Get current questions
+            current_questions = self.get_questions(company_id)
+            
+            # Check if index is valid
+            if not current_questions or question_index < 0 or question_index >= len(current_questions):
+                logger.error(f"Invalid question index: {question_index}")
+                return False
+            
+            # Remove the question at the specified index
+            deleted_question = current_questions.pop(question_index)
+            logger.info(f"Deleted question: {deleted_question}")
+            
+            # Save the updated questions
+            return self.save_questions(company_id, current_questions)
+        except Exception as e:
+            logger.error(f"Error deleting question: {e}")
+            return False
 
 # Note: The CompanyAdminAgent class has been moved to app.src.agents.company_admin
 # Please import it from there instead:

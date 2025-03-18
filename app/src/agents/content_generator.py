@@ -1,17 +1,22 @@
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
 from ..prompts.content_generator import CONTENT_PROMPT
+from ..utils.session_manager import get_session_manager
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class ContentGeneratorAgent:
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session_memories = {}
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
+        self.session_manager = get_session_manager()
         self.tools = [
             Tool(
                 name="content_generator",
@@ -26,31 +31,21 @@ class ContentGeneratorAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
-    def get_session_executor(self, session_id: str) -> AgentExecutor:
-        if session_id not in self.session_memories:
-            memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                input_key="input",
-                return_messages=True,
-                k=20
-            )
-            agent = create_openai_tools_agent(
-                llm=self.llm,
-                tools=self.tools,
-                prompt=self.prompt
-            )
-            self.session_memories[session_id] = AgentExecutor(
-                agent=agent,
-                tools=self.tools,
-                memory=memory,
-                verbose=True
-            )
-        return self.session_memories[session_id]
-
     def process_message(self, user_input: str, session_id: str) -> str:
         """Process the user's message using session-specific memory."""
-        executor = self.get_session_executor(session_id)
+        logger.info(f"Processing message for session_id: {session_id}")
+        
+        # Get or create session executor using the session manager
+        executor = self.session_manager.get_or_create_session(
+            session_id=session_id,
+            llm=self.llm,
+            tools=self.tools,
+            prompt=self.prompt,
+            memory_k=20  # Use a smaller memory size for content generation
+        )
+        
         response = executor.invoke({"input": user_input})
+        logger.info("Message processed successfully")
         return response["output"]
 
 def main():

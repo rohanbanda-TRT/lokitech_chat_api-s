@@ -96,6 +96,18 @@ content_agent = ContentGeneratorAgent(api_key)
 analyzer_agent = PerformanceAnalyzerAgent(api_key)
 ```
 
+## Utilities
+
+### Session Manager
+
+Located in `utils/session_manager.py`, this utility provides centralized session management for all agent conversations. It maintains a dictionary of active sessions and provides methods to create, retrieve, and clear sessions.
+
+Key features:
+- Singleton instance accessible via `get_session_manager()`
+- Manages conversation history across multiple agent types
+- Reduces code duplication by centralizing session management logic
+- Provides consistent behavior across all agents
+
 ## Best Practices
 
 ### For Prompts
