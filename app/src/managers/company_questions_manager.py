@@ -1,21 +1,24 @@
 from typing import List, Dict, Any, Optional
 import json
 import logging
-from .database import get_db
+from ..core.database import get_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class CompanyQuestionsManager:
+    """
+    Manager class for company-specific questions
+    """
     def __init__(self):
         self.db = get_db()
         self.collection = self.db.get_collection("company_questions")
         logger.info("CompanyQuestionsManager initialized")
     
-    def save_questions(self, company_id: str, questions: List[Dict[str, Any]], append: bool = True) -> bool:
+    def create_questions(self, company_id: str, questions: List[Dict[str, Any]], append: bool = True) -> bool:
         """
-        Save company-specific questions to the database
+        Create or add company-specific questions to the database
         
         Args:
             company_id: The unique identifier for the company
@@ -26,8 +29,8 @@ class CompanyQuestionsManager:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"Attempting to save questions for company_id: {company_id}")
-            logger.info(f"Questions to save: {questions}")
+            logger.info(f"Attempting to create questions for company_id: {company_id}")
+            logger.info(f"Questions to create: {questions}")
             logger.info(f"Append mode: {append}")
             
             # Check if company already has questions
@@ -61,10 +64,10 @@ class CompanyQuestionsManager:
                     "company_id": company_id,
                     "questions": questions
                 })
-            logger.info(f"Successfully saved questions for company_id: {company_id}")
+            logger.info(f"Successfully created questions for company_id: {company_id}")
             return True
         except Exception as e:
-            logger.error(f"Error saving questions: {e}")
+            logger.error(f"Error creating questions: {e}")
             return False
     
     def get_questions(self, company_id: str) -> List[Dict[str, Any]]:
@@ -116,20 +119,29 @@ class CompanyQuestionsManager:
             # Update the question at the specified index
             current_questions[question_index] = updated_question
             
-            # Save the updated questions
-            return self.save_questions(company_id, current_questions, append=False)
+            # Save the updated questions directly
+            existing = self.collection.find_one({"company_id": company_id})
+            if existing:
+                self.collection.update_one(
+                    {"company_id": company_id},
+                    {"$set": {"questions": current_questions}}
+                )
+                logger.info(f"Successfully updated question at index {question_index} for company_id: {company_id}")
+                return True
+            else:
+                logger.error(f"Company with ID {company_id} not found")
+                return False
         except Exception as e:
             logger.error(f"Error updating question: {e}")
             return False
     
-    def delete_question(self, company_id: str, question_index: int, append: bool = False) -> bool:
+    def delete_question(self, company_id: str, question_index: int) -> bool:
         """
         Delete a specific question for a company
         
         Args:
             company_id: The unique identifier for the company
             question_index: The index of the question to delete (0-based)
-            append: If True, append new questions to existing ones; if False, replace them
             
         Returns:
             bool: True if successful, False otherwise
@@ -149,12 +161,18 @@ class CompanyQuestionsManager:
             deleted_question = current_questions.pop(question_index)
             logger.info(f"Deleted question: {deleted_question}")
             
-            # Save the updated questions
-            return self.save_questions(company_id, current_questions, append=append)
+            # Save the updated questions directly
+            existing = self.collection.find_one({"company_id": company_id})
+            if existing:
+                self.collection.update_one(
+                    {"company_id": company_id},
+                    {"$set": {"questions": current_questions}}
+                )
+                logger.info(f"Successfully deleted question at index {question_index} for company_id: {company_id}")
+                return True
+            else:
+                logger.error(f"Company with ID {company_id} not found")
+                return False
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
             return False
-
-# Note: The CompanyAdminAgent class has been moved to app.src.agents.company_admin
-# Please import it from there instead:
-# from app.src.agents import CompanyAdminAgent

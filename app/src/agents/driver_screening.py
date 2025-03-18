@@ -4,7 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
-from ..core.company_questions import CompanyQuestionsManager
+from ..managers.company_questions_manager import CompanyQuestionsManager
 import json
 from ..prompts.driver_screening import DRIVER_SCREENING_PROMPT_TEMPLATE
 from ..utils.session_manager import get_session_manager

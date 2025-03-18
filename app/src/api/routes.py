@@ -4,7 +4,8 @@ from ..agents.performance_analyzer import PerformanceAnalyzerAgent
 from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
 from typing import Optional, List
-from ..core.company_questions import CompanyQuestionsManager
+from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..models.question_models import Question
 
 router = APIRouter()
 settings = get_settings()
@@ -67,13 +68,9 @@ class CompanyAdminRequest(BaseModel):
         description="Company ID to associate with questions"
     )
 
-class CompanyQuestion(BaseModel):
-    question_text: str
-    required: bool = False
-
 class CompanyQuestionsRequest(BaseModel):
     company_id: str
-    questions: List[CompanyQuestion]
+    questions: List[Question]
 
 
 @router.post("/analyze-performance",
@@ -182,7 +179,7 @@ async def save_company_questions(request: CompanyQuestionsRequest):
     try:
         questions_manager = CompanyQuestionsManager()
         questions = [q.model_dump() for q in request.questions]
-        success = questions_manager.save_questions(request.company_id, questions)
+        success = questions_manager.create_questions(request.company_id, questions)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to save questions")
