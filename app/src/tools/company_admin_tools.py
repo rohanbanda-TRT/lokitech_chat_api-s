@@ -79,15 +79,60 @@ class CompanyAdminTools:
             logger.error(f"Unexpected error in create_questions: {e}")
             return f"Error: {str(e)}"
     
-    def get_questions(self, company_id: str) -> str:
-        """Tool function to retrieve questions from the database"""
+    def get_questions(self, input_str: str) -> str:
+        """Tool function to retrieve questions for a company"""
         try:
-            logger.info(f"Retrieving questions for company_id: {company_id}")
+            logger.info(f"Retrieving questions for company_id: {input_str}")
+            
+            # Parse the input data
+            try:
+                # If input is a string, try to parse it as JSON
+                if isinstance(input_str, str):
+                    logger.info(f"Input is a string, attempting to parse as JSON: {input_str}")
+                    data = json.loads(input_str)
+                # If input is already a dict, use it directly
+                elif isinstance(input_str, dict):
+                    logger.info(f"Input is already a dict: {input_str}")
+                    data = input_str
+                else:
+                    logger.error(f"Unexpected input type: {type(input_str)}")
+                    return f"Error: Unexpected input type: {type(input_str)}"
+                
+                logger.info(f"Parsed data: {data}")
+                
+                # Extract company_id from the parsed data
+                if isinstance(data, dict) and "company_id" in data:
+                    company_id = data["company_id"]
+                    logger.info(f"Extracted company_id: {company_id}")
+                else:
+                    logger.error(f"Invalid input format. Expected a dict with 'company_id' key")
+                    return "Error: Invalid input format. Expected a dict with 'company_id' key"
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                # If JSON parsing fails, try to use the input directly as a company_id
+                company_id = input_str
+                logger.info(f"Using input directly as company_id: {company_id}")
+            
+            # Get the questions
             questions = self.questions_manager.get_questions(company_id)
+            
+            if not questions:
+                return "[]"
+            
+            # Format the questions for display
+            formatted_questions = []
+            for i, q in enumerate(questions):
+                required_str = "(Required)" if q.get("required", False) else "(Optional)"
+                formatted_questions.append(f"{i+1}. {q['question_text']} {required_str}")
+            
             return json.dumps(questions)
+            
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
-            return f"Error retrieving questions: {str(e)}"
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return f"Error: {str(e)}"
     
     def update_question(self, input_str: str) -> str:
         """Tool function to update a specific question"""
@@ -148,9 +193,11 @@ class CompanyAdminTools:
             try:
                 # If input is a string, try to parse it as JSON
                 if isinstance(input_str, str):
+                    logger.info(f"Input is a string, attempting to parse as JSON: {input_str}")
                     data = json.loads(input_str)
                 # If input is already a dict, use it directly
                 elif isinstance(input_str, dict):
+                    logger.info(f"Input is already a dict: {input_str}")
                     data = input_str
                 else:
                     logger.error(f"Unexpected input type: {type(input_str)}")
@@ -163,7 +210,14 @@ class CompanyAdminTools:
             
             # Validate with Pydantic
             try:
+                logger.info(f"Validating data with DeleteQuestionInput model: {data}")
                 validated_data = DeleteQuestionInput.model_validate(data)
+                logger.info(f"Validation successful: company_id={validated_data.company_id}, question_index={validated_data.question_index}")
+                
+                # Get questions before deletion for debugging
+                before_questions = self.questions_manager.get_questions(validated_data.company_id)
+                logger.info(f"Questions before deletion: {before_questions}")
+                logger.info(f"Number of questions before deletion: {len(before_questions)}")
                 
                 # Delete the question
                 success = self.questions_manager.delete_question(
@@ -171,16 +225,25 @@ class CompanyAdminTools:
                     validated_data.question_index
                 )
                 
+                # Get questions after deletion for debugging
+                after_questions = self.questions_manager.get_questions(validated_data.company_id)
+                logger.info(f"Questions after deletion attempt: {after_questions}")
+                logger.info(f"Number of questions after deletion attempt: {len(after_questions)}")
+                
                 if success:
                     logger.info(f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}")
                     return f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}"
                 else:
-                    logger.error("Failed to delete question")
-                    return "Failed to delete question. Please check if the company ID and question index are valid."
+                    logger.error(f"Failed to delete question at index {validated_data.question_index} for company {validated_data.company_id}")
+                    return f"Failed to delete question at index {validated_data.question_index}. Please check if the company ID and question index are valid."
             except Exception as e:
                 logger.error(f"Error validating data: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return f"Error validating data: {str(e)}"
             
         except Exception as e:
             logger.error(f"Unexpected error in delete_question: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: {str(e)}"

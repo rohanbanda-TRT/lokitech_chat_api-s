@@ -1,6 +1,8 @@
 from typing import List, Dict, Any, Optional
 import json
 import logging
+from pymongo import IndexModel, ASCENDING
+from pymongo.errors import PyMongoError
 from ..core.database import get_db
 
 # Configure logging
@@ -14,6 +16,14 @@ class CompanyQuestionsManager:
     def __init__(self):
         self.db = get_db()
         self.collection = self.db.get_collection("company_questions")
+        
+        # Create indexes for better query performance
+        try:
+            self.collection.create_index("company_id", unique=True)
+            logger.info("Created index on company_id field")
+        except PyMongoError as e:
+            logger.warning(f"Index creation warning (may already exist): {e}")
+        
         logger.info("CompanyQuestionsManager initialized")
     
     def create_questions(self, company_id: str, questions: List[Dict[str, Any]], append: bool = True) -> bool:
@@ -46,26 +56,26 @@ class CompanyQuestionsManager:
                 logger.info(f"Combined questions count: {len(combined_questions)}")
                 
                 # Update with combined questions
-                self.collection.update_one(
+                result = self.collection.update_one(
                     {"company_id": company_id},
-                    {"$set": {"questions": combined_questions}}
+                    {"$set": {"questions": combined_questions}},
+                    upsert=False  # Don't create a new document if it doesn't exist
                 )
-            elif existing:
-                # Replace existing questions
-                logger.info(f"Replacing existing questions for company_id: {company_id}")
-                self.collection.update_one(
-                    {"company_id": company_id},
-                    {"$set": {"questions": questions}}
-                )
+                
+                logger.info(f"Update result: {result.modified_count} documents modified")
+                return result.modified_count > 0
             else:
-                # Insert new document
-                logger.info(f"Inserting new questions for company_id: {company_id}")
-                self.collection.insert_one({
-                    "company_id": company_id,
-                    "questions": questions
-                })
-            logger.info(f"Successfully created questions for company_id: {company_id}")
-            return True
+                # Either no existing questions or not in append mode
+                # Use upsert to either update or insert
+                result = self.collection.update_one(
+                    {"company_id": company_id},
+                    {"$set": {"questions": questions}},
+                    upsert=True  # Create a new document if it doesn't exist
+                )
+                
+                logger.info(f"Upsert result: {result.modified_count} modified, {result.upserted_id is not None} upserted")
+                return result.modified_count > 0 or result.upserted_id is not None
+                
         except Exception as e:
             logger.error(f"Error creating questions: {e}")
             return False
@@ -78,16 +88,25 @@ class CompanyQuestionsManager:
             company_id: The unique identifier for the company
             
         Returns:
-            List of question objects or empty list if none found
+            List of question objects
         """
         try:
             logger.info(f"Retrieving questions for company_id: {company_id}")
-            result = self.collection.find_one({"company_id": company_id})
-            if result and "questions" in result:
-                logger.info(f"Found {len(result['questions'])} questions for company_id: {company_id}")
-                return result["questions"]
-            logger.info(f"No questions found for company_id: {company_id}")
-            return []
+            
+            # Find company questions document
+            company_doc = self.collection.find_one(
+                {"company_id": company_id},
+                {"_id": 0, "questions": 1}  # Projection to only return the questions field
+            )
+            
+            if company_doc and "questions" in company_doc:
+                questions = company_doc["questions"]
+                logger.info(f"Found {len(questions)} questions for company_id: {company_id}")
+                return questions
+            else:
+                logger.info(f"No questions found for company_id: {company_id}")
+                return []
+                
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
             return []
@@ -98,39 +117,26 @@ class CompanyQuestionsManager:
         
         Args:
             company_id: The unique identifier for the company
-            question_index: The index of the question to update (0-based)
+            question_index: The index of the question to update
             updated_question: The updated question object
             
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"Attempting to update question at index {question_index} for company_id: {company_id}")
+            logger.info(f"Updating question at index {question_index} for company_id: {company_id}")
             logger.info(f"Updated question: {updated_question}")
             
-            # Get current questions
-            current_questions = self.get_questions(company_id)
+            # Update the specific question using the positional $ operator
+            result = self.collection.update_one(
+                {"company_id": company_id},
+                {"$set": {f"questions.{question_index}": updated_question}}
+            )
             
-            # Check if index is valid
-            if not current_questions or question_index < 0 or question_index >= len(current_questions):
-                logger.error(f"Invalid question index: {question_index}")
-                return False
+            success = result.modified_count > 0
+            logger.info(f"Update result: {result.modified_count} documents modified")
+            return success
             
-            # Update the question at the specified index
-            current_questions[question_index] = updated_question
-            
-            # Save the updated questions directly
-            existing = self.collection.find_one({"company_id": company_id})
-            if existing:
-                self.collection.update_one(
-                    {"company_id": company_id},
-                    {"$set": {"questions": current_questions}}
-                )
-                logger.info(f"Successfully updated question at index {question_index} for company_id: {company_id}")
-                return True
-            else:
-                logger.error(f"Company with ID {company_id} not found")
-                return False
         except Exception as e:
             logger.error(f"Error updating question: {e}")
             return False
@@ -141,38 +147,84 @@ class CompanyQuestionsManager:
         
         Args:
             company_id: The unique identifier for the company
-            question_index: The index of the question to delete (0-based)
+            question_index: The index of the question to delete
             
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"Attempting to delete question at index {question_index} for company_id: {company_id}")
+            logger.info(f"Deleting question at index {question_index} for company_id: {company_id}")
             
             # Get current questions
-            current_questions = self.get_questions(company_id)
+            company_doc = self.collection.find_one({"company_id": company_id})
             
-            # Check if index is valid
-            if not current_questions or question_index < 0 or question_index >= len(current_questions):
-                logger.error(f"Invalid question index: {question_index}")
+            if not company_doc:
+                logger.error(f"No document found for company_id: {company_id}")
+                return False
+                
+            if "questions" not in company_doc:
+                logger.error(f"No 'questions' field in document for company_id: {company_id}")
+                logger.error(f"Document structure: {company_doc}")
+                return False
+                
+            questions = company_doc["questions"]
+            logger.info(f"Found {len(questions)} questions for company_id: {company_id}")
+            logger.info(f"Current questions: {questions}")
+            
+            if not isinstance(questions, list):
+                logger.error(f"'questions' field is not a list. Type: {type(questions)}")
                 return False
             
+            if question_index < 0 or question_index >= len(questions):
+                logger.error(f"Question index {question_index} out of range (0-{len(questions)-1})")
+                return False
+                
             # Remove the question at the specified index
-            deleted_question = current_questions.pop(question_index)
-            logger.info(f"Deleted question: {deleted_question}")
+            logger.info(f"Removing question at index {question_index}: {questions[question_index]}")
+            questions.pop(question_index)
+            logger.info(f"Questions after removal: {questions}")
             
-            # Save the updated questions directly
-            existing = self.collection.find_one({"company_id": company_id})
-            if existing:
-                self.collection.update_one(
-                    {"company_id": company_id},
-                    {"$set": {"questions": current_questions}}
-                )
-                logger.info(f"Successfully deleted question at index {question_index} for company_id: {company_id}")
-                return True
-            else:
-                logger.error(f"Company with ID {company_id} not found")
-                return False
+            # Update the document with the modified questions list
+            result = self.collection.update_one(
+                {"company_id": company_id},
+                {"$set": {"questions": questions}}
+            )
+            
+            success = result.modified_count > 0
+            logger.info(f"Delete result: {result.modified_count} documents modified, matched_count: {result.matched_count}")
+            return success
+            
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+    
+    def bulk_update_questions(self, company_id: str, questions: List[Dict[str, Any]]) -> bool:
+        """
+        Update all questions for a company in a single operation
+        
+        Args:
+            company_id: The unique identifier for the company
+            questions: The complete list of updated questions
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Bulk updating all questions for company_id: {company_id}")
+            logger.info(f"Updated questions count: {len(questions)}")
+            
+            result = self.collection.update_one(
+                {"company_id": company_id},
+                {"$set": {"questions": questions}},
+                upsert=True
+            )
+            
+            success = result.modified_count > 0 or result.upserted_id is not None
+            logger.info(f"Bulk update result: {result.modified_count} documents modified, {result.upserted_id is not None} upserted")
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error in bulk update: {e}")
             return False

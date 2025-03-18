@@ -1,5 +1,11 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+from dotenv import load_dotenv
+from urllib.parse import quote_plus
+
+# Load environment variables from .env file
+load_dotenv()
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str
@@ -9,7 +15,8 @@ class Settings(BaseSettings):
     LANGSMITH_PROJECT: str = "Report-Generation"
     
     # MongoDB settings
-    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_PASSWORD: str = os.environ.get("MONGODB_PASSWORD", "")
+    MONGODB_URI: str = f"mongodb+srv://suyog:{quote_plus(os.environ.get('MONGODB_PASSWORD', ''))}@dsp-lokitech.dbvpz.mongodb.net/?retryWrites=true&w=majority&appName=dsp-lokitech"
     MONGODB_DB_NAME: str = "lokitech_db"
 
     class Config:
