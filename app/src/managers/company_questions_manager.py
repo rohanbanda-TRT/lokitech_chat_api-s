@@ -199,32 +199,3 @@ class CompanyQuestionsManager:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
-    
-    def bulk_update_questions(self, company_id: str, questions: List[Dict[str, Any]]) -> bool:
-        """
-        Update all questions for a company in a single operation
-        
-        Args:
-            company_id: The unique identifier for the company
-            questions: The complete list of updated questions
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            logger.info(f"Bulk updating all questions for company_id: {company_id}")
-            logger.info(f"Updated questions count: {len(questions)}")
-            
-            result = self.collection.update_one(
-                {"company_id": company_id},
-                {"$set": {"questions": questions}},
-                upsert=True
-            )
-            
-            success = result.modified_count > 0 or result.upserted_id is not None
-            logger.info(f"Bulk update result: {result.modified_count} documents modified, {result.upserted_id is not None} upserted")
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error in bulk update: {e}")
-            return False

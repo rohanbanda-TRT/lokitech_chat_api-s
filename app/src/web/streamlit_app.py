@@ -42,7 +42,8 @@ def start_chat(page_key, endpoint, company_id, session_id):
     try:
         payload = {
             "message": "Start",
-            "session_id": session_id
+            "session_id": session_id,
+            "company_id": company_id
         }
         
         if company_id:

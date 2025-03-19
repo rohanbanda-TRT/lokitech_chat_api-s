@@ -79,11 +79,11 @@ class CompanyAdminAgent:
             tools=self.tools,
             prompt=self.prompt
         )
-        
         # If company_id is provided and this is the first message, include it
-        if company_id and "company_id" not in str(executor.memory.chat_memory.messages):
+        if company_id and (not executor.memory.chat_memory.messages or 
+                          f"Company ID: {company_id}" not in executor.memory.chat_memory.messages[0].content):
             logger.info(f"Adding company_id {company_id} to first message")
-            modified_input = f"I'm from company {company_id}. {user_input}"
+            modified_input = f"Company ID: {company_id}. Query : {user_input}"
         else:
             modified_input = user_input
         
