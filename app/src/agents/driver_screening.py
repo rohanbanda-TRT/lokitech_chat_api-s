@@ -28,17 +28,17 @@ class DriverScreeningAgent:
             )
         ]
         
-    def _get_company_specific_questions_text(self, company_id: str) -> str:
+    def _get_company_specific_questions_text(self, dsp_code: str) -> str:
         """
         Get company-specific questions formatted for the prompt
         
         Args:
-            company_id: The unique identifier for the company
+            dsp_code: The unique identifier for the company
             
         Returns:
             Formatted string of company-specific questions
         """
-        questions = self.questions_manager.get_questions(company_id)
+        questions = self.questions_manager.get_questions(dsp_code)
         
         if not questions:
             return "   - No company-specific questions defined. Skip this section."
@@ -54,20 +54,20 @@ class DriverScreeningAgent:
         
         return "\n".join(formatted_questions)
     
-    def _create_prompt(self, company_id: str = None) -> ChatPromptTemplate:
+    def _create_prompt(self, dsp_code: str = None) -> ChatPromptTemplate:
         """
         Create a prompt with company-specific questions if available
         
         Args:
-            company_id: Optional company ID to get company-specific questions
+            dsp_code: Optional DSP code to get company-specific questions
             
         Returns:
             Formatted prompt template
         """
         # Format the prompt with company-specific questions if available
         company_questions_text = "   - No company-specific questions defined. Skip this section."
-        if company_id:
-            company_questions_text = self._get_company_specific_questions_text(company_id)
+        if dsp_code:
+            company_questions_text = self._get_company_specific_questions_text(dsp_code)
         
         prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.format(
             company_specific_questions=company_questions_text
@@ -80,26 +80,26 @@ class DriverScreeningAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
-    def process_message(self, user_input: str, session_id: str, company_id: str = None) -> str:
+    def process_message(self, user_input: str, session_id: str, dsp_code: str = None) -> str:
         """
         Process the screening conversation using session-specific memory.
         
         Args:
             user_input: The message from the driver candidate
             session_id: Unique session identifier
-            company_id: Optional company ID to get company-specific questions
+            dsp_code: Optional DSP code to get company-specific questions
             
         Returns:
             Response from the agent
         """
-        logger.info(f"Processing message for session_id: {session_id}, company_id: {company_id}")
+        logger.info(f"Processing message for session_id: {session_id}, dsp_code: {dsp_code}")
         
-        # Create a unique session ID that includes the company_id to ensure
+        # Create a unique session ID that includes the dsp_code to ensure
         # we get the right prompt with company-specific questions
-        unique_session_id = f"{session_id}_{company_id}" if company_id else session_id
+        unique_session_id = f"{session_id}_{dsp_code}" if dsp_code else session_id
         
         # Create the prompt with company-specific questions
-        prompt = self._create_prompt(company_id)
+        prompt = self._create_prompt(dsp_code)
         
         # Get or create session executor using the session manager
         executor = self.session_manager.get_or_create_session(
@@ -123,8 +123,8 @@ def main():
     
     print("Driver Screening Started! Type 'q' or 'quit' to exit.")
     
-    # Ask for company ID
-    company_id = input("Enter company ID (or leave blank for default questions): ").strip()
+    # Ask for DSP code
+    dsp_code = input("Enter DSP code (or leave blank for default questions): ").strip()
     
     while True:
         user_input = input("\nEnter your message: ").strip().lower()
@@ -134,7 +134,7 @@ def main():
             break
         
         session_id = "default_session"  # You can modify this to use different session IDs
-        response = agent.process_message(user_input, session_id, company_id if company_id else None)
+        response = agent.process_message(user_input, session_id, dsp_code if dsp_code else None)
         print("\nResponse:", response)
 
 if __name__ == "__main__":

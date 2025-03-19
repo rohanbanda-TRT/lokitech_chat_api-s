@@ -154,7 +154,7 @@ The web interface will be available at http://localhost:8501
 - **POST /chat**: General content generation chat
 - **POST /driver-screening**: Driver screening conversation
 - **POST /company-admin**: Company admin conversation
-- **GET /company-questions/{company_id}**: Get company questions
+- **GET /company-questions/{dsp_code}**: Get company questions
 - **POST /company-questions**: Save company questions
 
 ## MongoDB Integration

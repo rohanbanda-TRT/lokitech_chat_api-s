@@ -49,9 +49,9 @@ class DriverScreeningRequest(BaseModel):
         min_length=1,
         description="Unique session identifier for screening conversation"
     )
-    company_id: Optional[str] = Field(
+    dsp_code: Optional[str] = Field(
         None,
-        description="Optional company ID to use company-specific questions"
+        description="Optional DSP code to use company-specific questions"
     )
 
 class CompanyAdminRequest(BaseModel):
@@ -62,14 +62,14 @@ class CompanyAdminRequest(BaseModel):
         min_length=1,
         description="Unique session identifier for company admin conversation"
     )
-    company_id: str = Field(
+    dsp_code: str = Field(
         ...,
         min_length=1,
-        description="Company ID to associate with questions"
+        description="DSP code to associate with questions"
     )
 
 class CompanyQuestionsRequest(BaseModel):
-    company_id: str
+    dsp_code: str
     questions: List[Question]
 
 
@@ -123,11 +123,11 @@ async def driver_screening(request: DriverScreeningRequest):
             else request.message
         )
         
-        # Process message using driver screening agent with company_id if provided
+        # Process message using driver screening agent with dsp_code if provided
         result = driver_screening_agent.process_message(
             message, 
             request.session_id,
-            request.company_id
+            request.dsp_code
         )
         
         return {
@@ -146,7 +146,7 @@ async def company_admin(request: CompanyAdminRequest):
         result = company_admin_agent.process_message(
             request.message,
             request.session_id,
-            request.company_id
+            request.dsp_code
         )
         
         return {
@@ -156,16 +156,16 @@ async def company_admin(request: CompanyAdminRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/company-questions/{company_id}",
+@router.get("/company-questions/{dsp_code}",
          summary="Get company-specific questions",
          description="Retrieve the list of questions for a specific company")
-async def get_company_questions(company_id: str):
+async def get_company_questions(dsp_code: str):
     try:
         questions_manager = CompanyQuestionsManager()
-        questions = questions_manager.get_questions(company_id)
+        questions = questions_manager.get_questions(dsp_code)
         
         return {
-            "company_id": company_id,
+            "dsp_code": dsp_code,
             "questions": questions
         }
     
@@ -179,14 +179,14 @@ async def save_company_questions(request: CompanyQuestionsRequest):
     try:
         questions_manager = CompanyQuestionsManager()
         questions = [q.model_dump() for q in request.questions]
-        success = questions_manager.create_questions(request.company_id, questions)
+        success = questions_manager.create_questions(request.dsp_code, questions)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to save questions")
         
         return {
             "success": True,
-            "company_id": request.company_id,
+            "dsp_code": request.dsp_code,
             "question_count": len(request.questions)
         }
     

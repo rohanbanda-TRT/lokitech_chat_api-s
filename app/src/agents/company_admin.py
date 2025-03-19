@@ -58,19 +58,19 @@ class CompanyAdminAgent:
         
         logger.info("CompanyAdminAgent initialized with JsonOutputParser")
     
-    def process_message(self, user_input: str, session_id: str, company_id: Optional[str] = None) -> str:
+    def process_message(self, user_input: str, session_id: str, dsp_code: Optional[str] = None) -> str:
         """
         Process messages from company admin to collect and manage questions
         
         Args:
             user_input: The message from the company admin
             session_id: Unique session identifier
-            company_id: Optional company ID if already known
+            dsp_code: Optional DSP code if already known
             
         Returns:
             Response from the agent
         """
-        logger.info(f"Processing message for session_id: {session_id}, company_id: {company_id}")
+        logger.info(f"Processing message for session_id: {session_id}, dsp_code: {dsp_code}")
         
         # Get or create session executor using the session manager
         executor = self.session_manager.get_or_create_session(
@@ -79,11 +79,11 @@ class CompanyAdminAgent:
             tools=self.tools,
             prompt=self.prompt
         )
-        # If company_id is provided and this is the first message, include it
-        if company_id and (not executor.memory.chat_memory.messages or 
-                          f"Company ID: {company_id}" not in executor.memory.chat_memory.messages[0].content):
-            logger.info(f"Adding company_id {company_id} to first message")
-            modified_input = f"Company ID: {company_id}. Query : {user_input}"
+        # If dsp_code is provided and this is the first message, include it
+        if dsp_code and (not executor.memory.chat_memory.messages or 
+                          f"DSP Code: {dsp_code}" not in executor.memory.chat_memory.messages[0].content):
+            logger.info(f"Adding dsp_code {dsp_code} to first message")
+            modified_input = f"DSP Code: {dsp_code}. Query : {user_input}"
         else:
             modified_input = user_input
         

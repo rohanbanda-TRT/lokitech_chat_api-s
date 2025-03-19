@@ -40,7 +40,7 @@ class CompanyAdminTools:
             # Handle different input formats
             if isinstance(data, dict):
                 # Check if it's a properly formatted CompanyQuestions object
-                if "company_id" in data and "questions" in data:
+                if "dsp_code" in data and "questions" in data:
                     # Validate with Pydantic
                     try:
                         validated_data = CompanyQuestions.model_validate(data)
@@ -50,14 +50,14 @@ class CompanyAdminTools:
                         
                         # Create in database
                         success = self.questions_manager.create_questions(
-                            validated_data.company_id, 
+                            validated_data.dsp_code, 
                             questions_dict,
                             append=validated_data.append
                         )
                         
                         if success:
-                            logger.info(f"Successfully created {len(questions_dict)} questions for company {validated_data.company_id}")
-                            return f"Successfully created {len(questions_dict)} questions for company {validated_data.company_id}"
+                            logger.info(f"Successfully created {len(questions_dict)} questions for company {validated_data.dsp_code}")
+                            return f"Successfully created {len(questions_dict)} questions for company {validated_data.dsp_code}"
                         else:
                             logger.error("Failed to create questions in database")
                             return "Failed to create questions in database"
@@ -66,11 +66,11 @@ class CompanyAdminTools:
                         return f"Error validating data: {str(e)}"
                 else:
                     logger.error("Missing required fields in input")
-                    return "Error: Input must contain 'company_id' and 'questions' fields"
+                    return "Error: Input must contain 'dsp_code' and 'questions' fields"
             elif isinstance(data, list):
-                # If it's just a list of questions, we need a company_id from the conversation
-                logger.error("Cannot process list without company_id")
-                return "Error: When providing a list of questions, you must also provide a company_id"
+                # If it's just a list of questions, we need a dsp_code from the conversation
+                logger.error("Cannot process list without dsp_code")
+                return "Error: When providing a list of questions, you must also provide a dsp_code"
             else:
                 logger.error(f"Unexpected data format: {type(data)}")
                 return f"Error: Unexpected data format: {type(data)}"
@@ -82,7 +82,7 @@ class CompanyAdminTools:
     def get_questions(self, input_str: str) -> str:
         """Tool function to retrieve questions for a company"""
         try:
-            logger.info(f"Retrieving questions for company_id: {input_str}")
+            logger.info(f"Retrieving questions for dsp_code: {input_str}")
             
             # Parse the input data
             try:
@@ -100,22 +100,22 @@ class CompanyAdminTools:
                 
                 logger.info(f"Parsed data: {data}")
                 
-                # Extract company_id from the parsed data
-                if isinstance(data, dict) and "company_id" in data:
-                    company_id = data["company_id"]
-                    logger.info(f"Extracted company_id: {company_id}")
+                # Extract dsp_code from the parsed data
+                if isinstance(data, dict) and "dsp_code" in data:
+                    dsp_code = data["dsp_code"]
+                    logger.info(f"Extracted dsp_code: {dsp_code}")
                 else:
-                    logger.error(f"Invalid input format. Expected a dict with 'company_id' key")
-                    return "Error: Invalid input format. Expected a dict with 'company_id' key"
+                    logger.error(f"Invalid input format. Expected a dict with 'dsp_code' key")
+                    return "Error: Invalid input format. Expected a dict with 'dsp_code' key"
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON: {e}")
-                # If JSON parsing fails, try to use the input directly as a company_id
-                company_id = input_str
-                logger.info(f"Using input directly as company_id: {company_id}")
+                # If JSON parsing fails, try to use the input directly as a dsp_code
+                dsp_code = input_str
+                logger.info(f"Using input directly as dsp_code: {dsp_code}")
             
             # Get the questions
-            questions = self.questions_manager.get_questions(company_id)
+            questions = self.questions_manager.get_questions(dsp_code)
             
             if not questions:
                 return "[]"
@@ -165,17 +165,17 @@ class CompanyAdminTools:
                 
                 # Update the question
                 success = self.questions_manager.update_question(
-                    validated_data.company_id,
+                    validated_data.dsp_code,
                     validated_data.question_index,
                     updated_question_dict
                 )
                 
                 if success:
-                    logger.info(f"Successfully updated question at index {validated_data.question_index} for company {validated_data.company_id}")
-                    return f"Successfully updated question at index {validated_data.question_index} for company {validated_data.company_id}"
+                    logger.info(f"Successfully updated question at index {validated_data.question_index} for company {validated_data.dsp_code}")
+                    return f"Successfully updated question at index {validated_data.question_index} for company {validated_data.dsp_code}"
                 else:
                     logger.error("Failed to update question")
-                    return "Failed to update question. Please check if the company ID and question index are valid."
+                    return "Failed to update question. Please check if the DSP code and question index are valid."
             except Exception as e:
                 logger.error(f"Error validating data: {e}")
                 return f"Error validating data: {str(e)}"
@@ -204,46 +204,31 @@ class CompanyAdminTools:
                     return f"Error: Unexpected input type: {type(input_str)}"
                 
                 logger.info(f"Parsed data: {data}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON: {e}")
-                return f"Error: Invalid JSON format - {str(e)}"
-            
-            # Validate with Pydantic
-            try:
-                logger.info(f"Validating data with DeleteQuestionInput model: {data}")
-                validated_data = DeleteQuestionInput.model_validate(data)
-                logger.info(f"Validation successful: company_id={validated_data.company_id}, question_index={validated_data.question_index}")
                 
-                # Get questions before deletion for debugging
-                before_questions = self.questions_manager.get_questions(validated_data.company_id)
-                logger.info(f"Questions before deletion: {before_questions}")
-                logger.info(f"Number of questions before deletion: {len(before_questions)}")
+                # Validate with Pydantic
+                validated_data = DeleteQuestionInput.model_validate(data)
                 
                 # Delete the question
                 success = self.questions_manager.delete_question(
-                    validated_data.company_id,
+                    validated_data.dsp_code,
                     validated_data.question_index
                 )
                 
                 # Get questions after deletion for debugging
-                after_questions = self.questions_manager.get_questions(validated_data.company_id)
+                after_questions = self.questions_manager.get_questions(validated_data.dsp_code)
                 logger.info(f"Questions after deletion attempt: {after_questions}")
                 logger.info(f"Number of questions after deletion attempt: {len(after_questions)}")
                 
                 if success:
-                    logger.info(f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}")
-                    return f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.company_id}"
+                    logger.info(f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.dsp_code}")
+                    return f"Successfully deleted question at index {validated_data.question_index} for company {validated_data.dsp_code}"
                 else:
-                    logger.error(f"Failed to delete question at index {validated_data.question_index} for company {validated_data.company_id}")
-                    return f"Failed to delete question at index {validated_data.question_index}. Please check if the company ID and question index are valid."
+                    logger.error("Failed to delete question")
+                    return "Failed to delete question. Please check if the DSP code and question index are valid."
             except Exception as e:
                 logger.error(f"Error validating data: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
                 return f"Error validating data: {str(e)}"
             
         except Exception as e:
             logger.error(f"Unexpected error in delete_question: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: {str(e)}"

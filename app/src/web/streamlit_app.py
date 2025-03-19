@@ -18,12 +18,12 @@ def initialize_session_state():
         st.session_state.admin_session_id = str(uuid.uuid4())
     if "current_page" not in st.session_state:
         st.session_state.current_page = "User"
-    if "company_id" not in st.session_state:
-        st.session_state.company_id = ""
+    if "dsp_code" not in st.session_state:
+        st.session_state.dsp_code = ""
     if "chat_started" not in st.session_state:
         st.session_state.chat_started = {"user": False, "admin": False}
-    if "last_company_id" not in st.session_state:
-        st.session_state.last_company_id = {"user": "", "admin": ""}
+    if "last_dsp_code" not in st.session_state:
+        st.session_state.last_dsp_code = {"user": "", "admin": ""}
 
 def get_chat_history(page_key):
     """Get chat history for a specific page"""
@@ -37,17 +37,17 @@ def add_message(page_key, role, content):
         st.session_state.messages[page_key] = []
     st.session_state.messages[page_key].append({"role": role, "content": content})
 
-def start_chat(page_key, endpoint, company_id, session_id):
+def start_chat(page_key, endpoint, dsp_code, session_id):
     """Start a new chat session"""
     try:
         payload = {
             "message": "Start",
             "session_id": session_id,
-            "company_id": company_id
+            "dsp_code": dsp_code
         }
         
-        if company_id:
-            payload["company_id"] = company_id
+        if dsp_code:
+            payload["dsp_code"] = dsp_code
             
         response = requests.post(
             f"http://127.0.0.1:8000/{endpoint}",
@@ -57,7 +57,7 @@ def start_chat(page_key, endpoint, company_id, session_id):
             assistant_message = response.json()["response"]
             add_message(page_key, "assistant", assistant_message)
             st.session_state.chat_started[page_key] = True
-            st.session_state.last_company_id[page_key] = company_id
+            st.session_state.last_dsp_code[page_key] = dsp_code
             return True
         else:
             st.error(f"Error starting chat: {response.status_code}")
@@ -70,29 +70,29 @@ def user_page():
     st.title("Driver Screening Interview")
     st.subheader("User View")
     
-    # Company ID input
-    company_id = st.text_input("Company ID (Optional)", value=st.session_state.company_id, key="user_company_id")
+    # DSP code input
+    dsp_code = st.text_input("DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code")
     
-    # Check if company ID has changed and we need to restart chat
-    company_id_changed = company_id != st.session_state.last_company_id["user"] and company_id
+    # Check if DSP code has changed and we need to restart chat
+    dsp_code_changed = dsp_code != st.session_state.last_dsp_code["user"] and dsp_code
     
-    # Start chat button - disabled if no company ID or chat already started
-    start_button_disabled = st.session_state.chat_started["user"] or not company_id
+    # Start chat button - disabled if no DSP code or chat already started
+    start_button_disabled = st.session_state.chat_started["user"] or not dsp_code
     
-    if st.button("Start Screening", disabled=start_button_disabled, key="start_user_chat") or company_id_changed:
-        # Update company ID
-        st.session_state.company_id = company_id
+    if st.button("Start Screening", disabled=start_button_disabled, key="start_user_chat") or dsp_code_changed:
+        # Update DSP code
+        st.session_state.dsp_code = dsp_code
         # Clear previous messages
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         # Start new chat
-        if start_chat("user", "driver-screening", company_id, st.session_state.user_session_id):
+        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id):
             st.rerun()
     
     # Reset button
     if st.button("Reset Chat", key="reset_user_chat"):
         st.session_state.chat_started["user"] = False
-        st.session_state.last_company_id["user"] = ""
+        st.session_state.last_dsp_code["user"] = ""
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         st.rerun()
@@ -115,8 +115,8 @@ def user_page():
                     "session_id": st.session_state.user_session_id
                 }
                 
-                if company_id:
-                    payload["company_id"] = company_id
+                if dsp_code:
+                    payload["dsp_code"] = dsp_code
                     
                 response = requests.post(
                     "http://127.0.0.1:8000/driver-screening",
@@ -132,8 +132,8 @@ def user_page():
             except Exception as e:
                 st.error(f"Error: {str(e)}")
     else:
-        if not company_id:
-            st.info("Please enter a company ID to begin the interview")
+        if not dsp_code:
+            st.info("Please enter a DSP code to begin the interview")
         else:
             st.info("Click 'Start Screening' to begin the interview")
 
@@ -141,33 +141,33 @@ def admin_page():
     st.title("Company Admin Panel")
     st.subheader("Manage Screening Questions")
     
-    # Company ID input (required for admin)
-    company_id = st.text_input("Company ID (Required)", value=st.session_state.company_id, key="admin_company_id")
+    # DSP code input (required for admin)
+    dsp_code = st.text_input("DSP Code (Required)", value=st.session_state.dsp_code, key="admin_dsp_code")
     
-    if not company_id:
-        st.warning("Please enter a Company ID to manage questions")
+    if not dsp_code:
+        st.warning("Please enter a DSP Code to manage questions")
         return
     
-    # Check if company ID has changed and we need to restart chat
-    company_id_changed = company_id != st.session_state.last_company_id["admin"] and company_id
+    # Check if DSP code has changed and we need to restart chat
+    dsp_code_changed = dsp_code != st.session_state.last_dsp_code["admin"] and dsp_code
     
     # Start chat button
     start_button_disabled = st.session_state.chat_started["admin"]
     
-    if st.button("Start Admin Session", disabled=start_button_disabled, key="start_admin_chat") or company_id_changed:
-        # Update company ID
-        st.session_state.company_id = company_id
+    if st.button("Start Admin Session", disabled=start_button_disabled, key="start_admin_chat") or dsp_code_changed:
+        # Update DSP code
+        st.session_state.dsp_code = dsp_code
         # Clear previous messages
         if "admin" in st.session_state.messages:
             st.session_state.messages["admin"] = []
         # Start new chat
-        if start_chat("admin", "company-admin", company_id, st.session_state.admin_session_id):
+        if start_chat("admin", "company-admin", dsp_code, st.session_state.admin_session_id):
             st.rerun()
     
     # Reset button
     if st.button("Reset Chat", key="reset_admin_chat"):
         st.session_state.chat_started["admin"] = False
-        st.session_state.last_company_id["admin"] = ""
+        st.session_state.last_dsp_code["admin"] = ""
         if "admin" in st.session_state.messages:
             st.session_state.messages["admin"] = []
         st.rerun()
@@ -176,7 +176,7 @@ def admin_page():
     with st.expander("View Current Questions", expanded=False):
         if st.button("Refresh Questions"):
             try:
-                response = requests.get(f"http://127.0.0.1:8000/company-questions/{company_id}")
+                response = requests.get(f"http://127.0.0.1:8000/company-questions/{dsp_code}")
                 if response.status_code == 200:
                     questions = response.json().get("questions", [])
                     if questions:
@@ -207,7 +207,7 @@ def admin_page():
                     json={
                         "message": prompt,
                         "session_id": st.session_state.admin_session_id,
-                        "company_id": company_id
+                        "dsp_code": dsp_code
                     }
                 )
                 
@@ -223,17 +223,17 @@ def admin_page():
         st.info("Click 'Start Admin Session' to begin managing questions")
 
 def main():
-    # Page configuration
+    # Set page config
     st.set_page_config(
-        page_title="DSP Bot Demo",
-        page_icon="🚛",
+        page_title="Lokiteck Driver Screening",
+        page_icon="🚚",
         layout="wide"
     )
     
     # Initialize session state
     initialize_session_state()
     
-    # Sidebar for navigation
+    # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Select Page", ["User", "Admin"], index=0 if st.session_state.current_page == "User" else 1)
     
@@ -256,8 +256,8 @@ def main():
         st.session_state.last_company_id = {"user": "", "admin": ""}
         st.rerun()
     
-    # Display the selected page
-    if page == "User":
+    # Display selected page
+    if page == "User View":
         user_page()
     else:
         admin_page()

@@ -20,8 +20,8 @@ agent = DriverScreeningAgent(api_key)
 
 # Process a message from a driver candidate
 session_id = "unique_session_id"  # Use a unique ID for each conversation
-company_id = "company_123"  # Optional, to include company-specific questions
-response = agent.process_message("I'm interested in the driver position", session_id, company_id)
+dsp_code = "company_123"  # Optional, to include company-specific questions
+response = agent.process_message("I'm interested in the driver position", session_id, dsp_code)
 print(response)
 ```
 
@@ -41,8 +41,8 @@ agent = CompanyAdminAgent(api_key)
 
 # Process a message from a company admin
 session_id = "admin_session_id"
-company_id = "company_123"  # Optional, to include company ID in the first message
-response = agent.process_message("I want to add a new screening question", session_id, company_id)
+dsp_code = "company_123"  # Optional, to include company ID in the first message
+response = agent.process_message("I want to add a new screening question", session_id, dsp_code)
 print(response)
 ```
 
