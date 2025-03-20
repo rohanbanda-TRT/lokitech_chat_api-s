@@ -68,7 +68,7 @@ def start_chat(page_key, endpoint, dsp_code, session_id):
 
 def user_page():
     st.title("Driver Screening Interview")
-    st.subheader("User View")
+    st.subheader("User")
     
     # DSP code input
     dsp_code = st.text_input("DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code")
@@ -181,7 +181,7 @@ def admin_page():
                     questions = response.json().get("questions", [])
                     if questions:
                         for i, q in enumerate(questions):
-                            st.write(f"{i+1}. {q.get('question_text')} {'(Required)' if q.get('required') else '(Optional)'}")
+                            st.write(f"{i+1}. {q.get('question_text')} (Required)")
                     else:
                         st.info("No questions found for this company")
                 else:
@@ -257,7 +257,7 @@ def main():
         st.rerun()
     
     # Display selected page
-    if page == "User View":
+    if page == "User":
         user_page()
     else:
         admin_page()

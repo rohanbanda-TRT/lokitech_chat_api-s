@@ -123,8 +123,7 @@ class CompanyAdminTools:
             # Format the questions for display
             formatted_questions = []
             for i, q in enumerate(questions):
-                required_str = "(Required)" if q.get("required", False) else "(Optional)"
-                formatted_questions.append(f"{i+1}. {q['question_text']} {required_str}")
+                formatted_questions.append(f"{i+1}. {q['question_text']}")
             
             return json.dumps(questions)
             

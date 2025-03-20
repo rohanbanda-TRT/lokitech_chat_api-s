@@ -45,12 +45,8 @@ class DriverScreeningAgent:
         
         formatted_questions = []
         for i, q in enumerate(questions, 1):
-            required_text = " (Required)" if q.get("required", False) else " (Optional)"
-            formatted_questions.append(f"   - Ask Question {i}: \"{q['question_text']}\"{required_text}")
-            if q.get("required", False):
-                formatted_questions.append(f"     * This question is required. If the driver does not provide a clear answer, politely ask again.")
-            else:
-                formatted_questions.append(f"     * This question is optional. The driver may choose not to answer.")
+            formatted_questions.append(f"   - Ask Question {i}: \"{q['question_text']}\" (Required)")
+            formatted_questions.append(f"     * This question is required. If the driver does not provide a clear answer, politely ask again.")
         
         return "\n".join(formatted_questions)
     

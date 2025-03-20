@@ -6,7 +6,6 @@ class Question(BaseModel):
     Model for a screening question
     """
     question_text: str = Field(description="The text of the question to ask the driver")
-    required: bool = Field(default=False, description="Whether this question is required to be answered")
 
 class CompanyQuestions(BaseModel):
     """
