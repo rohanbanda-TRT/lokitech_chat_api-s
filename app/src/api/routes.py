@@ -5,7 +5,7 @@ from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
 from typing import Optional, List
 from ..managers.company_questions_manager import CompanyQuestionsManager
-from ..models.question_models import Question
+from ..models.question_models import Question, UserDetails
 
 router = APIRouter()
 settings = get_settings()
@@ -45,7 +45,7 @@ class DriverScreeningRequest(BaseModel):
     message: str
     
     session_id: str = Field(
-        ...,
+        ...,  
         min_length=1,
         description="Unique session identifier for screening conversation"
     )
@@ -53,12 +53,20 @@ class DriverScreeningRequest(BaseModel):
         None,
         description="Optional DSP code to use company-specific questions"
     )
+    user_details: Optional[UserDetails] = Field(
+        None,
+        description="Optional user details for personalized conversation"
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="Optional user ID to retrieve static user details"
+    )
 
 class CompanyAdminRequest(BaseModel):
     message: str
     
     session_id: str = Field(
-        ...,
+        ...,  
         min_length=1,
         description="Unique session identifier for company admin conversation"
     )
@@ -127,7 +135,9 @@ async def driver_screening(request: DriverScreeningRequest):
         result = driver_screening_agent.process_message(
             message, 
             request.session_id,
-            request.dsp_code
+            request.dsp_code,
+            request.user_details,
+            request.user_id
         )
         
         return {

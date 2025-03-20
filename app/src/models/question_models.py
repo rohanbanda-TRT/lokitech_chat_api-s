@@ -30,3 +30,18 @@ class DeleteQuestionInput(BaseModel):
     """
     dsp_code: str = Field(description="Unique identifier for the company")
     question_index: int = Field(description="Index of the question to delete (0-based)")
+
+class UserDetails(BaseModel):
+    """
+    Model for user details
+    """
+    user_id: Optional[str] = Field(default=None, description="Unique identifier for the user")
+    first_name: str = Field(description="First name of the user")
+    last_name: str = Field(description="Last name of the user")
+    email: Optional[str] = Field(default=None, description="Email address of the user")
+    mobile_number: Optional[str] = Field(default=None, description="Mobile number of the user")
+    
+    @property
+    def full_name(self) -> str:
+        """Get the full name of the user"""
+        return f"{self.first_name} {self.last_name}"

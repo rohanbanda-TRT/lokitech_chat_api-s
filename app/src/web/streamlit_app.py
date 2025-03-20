@@ -24,6 +24,14 @@ def initialize_session_state():
         st.session_state.chat_started = {"user": False, "admin": False}
     if "last_dsp_code" not in st.session_state:
         st.session_state.last_dsp_code = {"user": "", "admin": ""}
+    if "static_user_data" not in st.session_state:
+        st.session_state.static_user_data = {
+            "user_id": "12345",
+            "first_name": "John",
+            "last_name": "Doe",
+            "email": "john.doe@example.com",
+            "mobile_number": "1234500000"
+        }
 
 def get_chat_history(page_key):
     """Get chat history for a specific page"""
@@ -37,17 +45,23 @@ def add_message(page_key, role, content):
         st.session_state.messages[page_key] = []
     st.session_state.messages[page_key].append({"role": role, "content": content})
 
-def start_chat(page_key, endpoint, dsp_code, session_id):
+def start_chat(page_key, endpoint, dsp_code, session_id, user_id=None):
     """Start a new chat session"""
     try:
         payload = {
             "message": "Start",
-            "session_id": session_id,
-            "dsp_code": dsp_code
+            "session_id": session_id
         }
         
         if dsp_code:
             payload["dsp_code"] = dsp_code
+        
+        # Add user details if this is the user page and static_user_data exists
+        if page_key == "user" and "static_user_data" in st.session_state:
+            if user_id:
+                payload["user_id"] = user_id
+            else:
+                payload["user_details"] = st.session_state.static_user_data
             
         response = requests.post(
             f"http://127.0.0.1:8000/{endpoint}",
@@ -73,6 +87,9 @@ def user_page():
     # DSP code input
     dsp_code = st.text_input("DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code")
     
+    # User ID input (optional)
+    user_id = st.text_input("User ID (Optional)", value="12345", key="user_id")
+    
     # Check if DSP code has changed and we need to restart chat
     dsp_code_changed = dsp_code != st.session_state.last_dsp_code["user"] and dsp_code
     
@@ -86,7 +103,7 @@ def user_page():
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         # Start new chat
-        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id):
+        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id, user_id):
             st.rerun()
     
     # Reset button
@@ -117,6 +134,10 @@ def user_page():
                 
                 if dsp_code:
                     payload["dsp_code"] = dsp_code
+                
+                # Add user_id to payload if provided
+                if user_id:
+                    payload["user_id"] = user_id
                     
                 response = requests.post(
                     "http://127.0.0.1:8000/driver-screening",
@@ -257,7 +278,7 @@ def main():
         st.rerun()
     
     # Display selected page
-    if page == "User View":
+    if page == "User":
         user_page()
     else:
         admin_page()

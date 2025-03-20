@@ -54,12 +54,62 @@ class DriverScreeningAgent:
         
         return "\n".join(formatted_questions)
     
-    def _create_prompt(self, dsp_code: str = None) -> ChatPromptTemplate:
+    def _get_static_user_details(self, user_id: str = None) -> dict:
+        """
+        Get static user details for the prompt
+        
+        Args:
+            user_id: Optional user ID to retrieve specific user details
+            
+        Returns:
+            Dictionary containing user details
+        """
+        # For now, return static user details
+        # In the future, this could be fetched from a database or API
+        static_user_details = {
+            "user_id": "12345",
+            "first_name": "John",
+            "last_name": "Doe",
+            "email": "john.doe@example.com",
+            "mobile_number": "1234500000"
+        }
+        
+        return static_user_details
+    
+    def _format_user_details_text(self, user_details: dict) -> str:
+        """
+        Format user details for the prompt
+        
+        Args:
+            user_details: Dictionary containing user details
+            
+        Returns:
+            Formatted string of user details
+        """
+        if not user_details:
+            return "No user details provided. Ask for the driver's name first."
+        
+        full_name = f"{user_details.get('first_name', '')} {user_details.get('last_name', '')}".strip()
+        first_name = user_details.get('first_name', '')
+        
+        return f"""
+        User Details:
+        - User ID: {user_details.get('user_id', 'Not provided')}
+        - Name: {full_name}
+        - Email: {user_details.get('email', 'Not provided')}
+        - Mobile Number: {user_details.get('mobile_number', 'Not provided')}
+
+        IMPORTANT: The user's first name is "{first_name}". Greet them directly using this name.
+"""
+    
+    def _create_prompt(self, dsp_code: str = None, user_details = None, user_id: str = None):
         """
         Create a prompt with company-specific questions if available
         
         Args:
             dsp_code: Optional DSP code to get company-specific questions
+            user_details: Optional user details for personalized conversation
+            user_id: Optional user ID to retrieve static user details
             
         Returns:
             Formatted prompt template
@@ -69,8 +119,32 @@ class DriverScreeningAgent:
         if dsp_code:
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
         
+        # Format user details if available or get static user details
+        user_details_text = "No user details provided. Ask for the driver's name first."
+        if user_details:
+            # If user_details is a dictionary
+            if isinstance(user_details, dict):
+                user_details_text = self._format_user_details_text(user_details)
+            # If user_details is a UserDetails object
+            else:
+                full_name = f"{user_details.first_name or ''} {user_details.last_name or ''}".strip()
+                user_details_text = f"""
+                    User Details:
+                    - User ID: {user_details.user_id or 'Not provided'}
+                    - Name: {full_name}
+                    - Email: {user_details.email or 'Not provided'}
+                    - Mobile Number: {user_details.mobile_number or 'Not provided'}
+
+                    IMPORTANT: The user's first name is "{user_details.first_name}". Greet them directly using this name.
+                    """
+        elif user_id:
+            # Get static user details based on user_id
+            static_user_details = self._get_static_user_details(user_id)
+            user_details_text = self._format_user_details_text(static_user_details)
+        
         prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.format(
-            company_specific_questions=company_questions_text
+            company_specific_questions=company_questions_text,
+            user_details=user_details_text
         )
         
         return ChatPromptTemplate.from_messages([
@@ -80,7 +154,7 @@ class DriverScreeningAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
-    def process_message(self, user_input: str, session_id: str, dsp_code: str = None) -> str:
+    def process_message(self, user_input: str, session_id: str, dsp_code: str = None, user_details = None, user_id: str = None):
         """
         Process the screening conversation using session-specific memory.
         
@@ -88,6 +162,8 @@ class DriverScreeningAgent:
             user_input: The message from the driver candidate
             session_id: Unique session identifier
             dsp_code: Optional DSP code to get company-specific questions
+            user_details: Optional user details for personalized conversation
+            user_id: Optional user ID to retrieve static user details
             
         Returns:
             Response from the agent
@@ -99,7 +175,7 @@ class DriverScreeningAgent:
         unique_session_id = f"{session_id}_{dsp_code}" if dsp_code else session_id
         
         # Create the prompt with company-specific questions
-        prompt = self._create_prompt(dsp_code)
+        prompt = self._create_prompt(dsp_code, user_details, user_id)
         
         # Get or create session executor using the session manager
         executor = self.session_manager.get_or_create_session(
@@ -114,28 +190,30 @@ class DriverScreeningAgent:
         return response["output"]
 
 def main():
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("Please set OPENAI_API_KEY environment variable")
+    """
+    Example usage of the DriverScreeningAgent
+    """
+    import os
+    import uuid
     
+    # Get API key from environment variable
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    
+    # Create the agent
     agent = DriverScreeningAgent(api_key)
     
-    print("Driver Screening Started! Type 'q' or 'quit' to exit.")
+    # Create a unique session ID
+    session_id = str(uuid.uuid4())
     
-    # Ask for DSP code
-    dsp_code = input("Enter DSP code (or leave blank for default questions): ").strip()
+    # Example with user_id (static user details)
+    print("\n=== Example with user_id (static user details) ===")
+    response = agent.process_message("Hello", f"{session_id}_with_user_id", None, None, "12345")
+    print(f"Agent: {response}")
     
-    while True:
-        user_input = input("\nEnter your message: ").strip().lower()
-        
-        if user_input in ['q', 'quit']:
-            print("\nScreening ended.")
-            break
-        
-        session_id = "default_session"  # You can modify this to use different session IDs
-        response = agent.process_message(user_input, session_id, dsp_code if dsp_code else None)
-        print("\nResponse:", response)
+    # Example without user details
+    print("\n=== Example without user details ===")
+    response = agent.process_message("Hello", session_id)
+    print(f"Agent: {response}")
 
 if __name__ == "__main__":
     main()
