@@ -182,6 +182,12 @@ def admin_page():
                     if questions:
                         for i, q in enumerate(questions):
                             st.write(f"{i+1}. {q.get('question_text')} (Required)")
+                            if 'criteria' in q and q['criteria']:
+                                st.markdown(f"   - **Criteria:** {q.get('criteria')}")
+                                st.divider()
+                            else:
+                                st.markdown(f"   - **Criteria:** Not specified")
+                                st.divider()
                     else:
                         st.info("No questions found for this company")
                 else:

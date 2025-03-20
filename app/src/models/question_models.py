@@ -6,6 +6,7 @@ class Question(BaseModel):
     Model for a screening question
     """
     question_text: str = Field(description="The text of the question to ask the driver")
+    criteria: Optional[str] = Field(default=None, description="Criteria to evaluate the driver's answer against")
 
 class CompanyQuestions(BaseModel):
     """
