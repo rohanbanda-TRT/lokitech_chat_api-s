@@ -28,9 +28,12 @@ DSP_BOT_Structured/
 │       │   └── routes.py       # FastAPI route definitions
 │       ├── core/               # Core functionality
 │       │   ├── config.py       # Application configuration
-│       │   └── database.py     # Database connection management
+│       │   ├── database.py     # Database connection management
+│       │   └── firebase_config.py # Firebase configuration
 │       ├── managers/           # Business logic managers
-│       │   └── company_questions_manager.py # Manages company questions
+│       │   ├── company_questions_manager.py # MongoDB implementation for company questions
+│       │   ├── firebase_company_questions_manager.py # Firebase implementation for company questions
+│       │   └── company_questions_factory.py # Factory for selecting the appropriate implementation
 │       ├── models/             # Data models
 │       │   └── question_models.py      # Question-related models
 │       ├── prompts/            # LLM prompts
@@ -93,6 +96,22 @@ The Company Admin module allows companies to manage their screening questions:
 - Delete questions
 - Customize the screening process
 
+## Storage Architecture
+
+The application uses a dual-storage approach:
+
+1. **Company Questions**: Stored in Firebase Firestore
+   - Managed by the `FirebaseCompanyQuestionsManager`
+   - Used by both the Company Admin Agent and Driver Screening Agent
+
+2. **Driver Screening Data**: Stored in MongoDB
+   - Managed by the `DriverScreeningManager`
+   - Used by the Driver Screening Agent
+
+For detailed setup instructions, see:
+- [Firebase Setup](README_FIREBASE.md)
+- [MongoDB Setup](README_MONGODB.md)
+
 ## Technology Stack
 
 - **Backend**: FastAPI (Python)
@@ -108,6 +127,7 @@ The Company Admin module allows companies to manage their screening questions:
 - Python 3.8+
 - MongoDB Atlas account
 - OpenAI API key
+- Firebase account
 
 ### Installation
 
@@ -126,6 +146,7 @@ The Company Admin module allows companies to manage their screening questions:
    ```
    OPENAI_API_KEY=your_openai_api_key
    MONGODB_PASSWORD=your_mongodb_password
+   FIREBASE_API_KEY=your_firebase_api_key
    ```
 
 ### Running the Application

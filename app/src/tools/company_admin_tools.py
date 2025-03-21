@@ -2,7 +2,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional, Union
 from ..models.question_models import Question, CompanyQuestions, UpdateQuestionInput, DeleteQuestionInput
-from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..managers.company_questions_factory import get_company_questions_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -13,7 +13,7 @@ class CompanyAdminTools:
     Tools for company admin operations
     """
     def __init__(self):
-        self.questions_manager = CompanyQuestionsManager()
+        self.questions_manager = get_company_questions_manager()
     
     def create_questions(self, input_str: str) -> str:
         """Tool function to create questions in the database"""

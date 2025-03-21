@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
-from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..managers.company_questions_factory import get_company_questions_manager
 from ..tools.driver_screening_tools import DriverScreeningTools
 import json
 from ..prompts.driver_screening import DRIVER_SCREENING_PROMPT_TEMPLATE
@@ -20,7 +20,8 @@ class DriverScreeningAgent:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
-        self.questions_manager = CompanyQuestionsManager()
+        # Use Firebase for company questions via the factory
+        self.questions_manager = get_company_questions_manager()
         self.session_manager = get_session_manager()
         self.screening_tools = DriverScreeningTools()
         self.tools = [

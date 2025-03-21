@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     MONGODB_PASSWORD: str = os.environ.get("MONGODB_PASSWORD", "")
     MONGODB_URI: str = f"mongodb+srv://suyog:{quote_plus(os.environ.get('MONGODB_PASSWORD', ''))}@dsp-lokitech.dbvpz.mongodb.net/?retryWrites=true&w=majority&appName=dsp-lokitech"
     MONGODB_DB_NAME: str = "lokitech_db"
+    
+    # Storage settings
+    # Options: "mongodb" or "firebase"
+    COMPANY_QUESTIONS_STORAGE: str = os.environ.get("COMPANY_QUESTIONS_STORAGE", "firebase")
 
     class Config:
         env_file = ".env"

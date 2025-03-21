@@ -4,7 +4,7 @@ from ..agents.performance_analyzer import PerformanceAnalyzerAgent
 from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
 from typing import Optional, List
-from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..managers.company_questions_factory import get_company_questions_manager
 from ..models.question_models import Question
 import logging
 
@@ -189,7 +189,7 @@ async def company_admin(request: CompanyAdminRequest):
          description="Retrieve the list of questions for a specific company")
 async def get_company_questions(dsp_code: str):
     try:
-        questions_manager = CompanyQuestionsManager()
+        questions_manager = get_company_questions_manager()
         questions = questions_manager.get_questions(dsp_code)
         
         return {
@@ -205,7 +205,7 @@ async def get_company_questions(dsp_code: str):
          description="Save a list of questions for a specific company")
 async def save_company_questions(request: CompanyQuestionsRequest):
     try:
-        questions_manager = CompanyQuestionsManager()
+        questions_manager = get_company_questions_manager()
         questions = [q.model_dump() for q in request.questions]
         success = questions_manager.create_questions(request.dsp_code, questions)
         

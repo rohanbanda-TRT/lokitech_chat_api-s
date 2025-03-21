@@ -7,7 +7,7 @@ import logging
 from ..prompts.company_admin import COMPANY_ADMIN_PROMPT
 from ..utils.session_manager import get_session_manager
 from ..models.question_models import CompanyQuestions
-from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..managers.company_questions_factory import get_company_questions_manager
 from ..tools.company_admin_tools import CompanyAdminTools
 
 # Configure logging
@@ -18,7 +18,7 @@ class CompanyAdminAgent:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
-        self.questions_manager = CompanyQuestionsManager()
+        self.questions_manager = get_company_questions_manager()
         self.session_manager = get_session_manager()
         self.admin_tools = CompanyAdminTools()
         
