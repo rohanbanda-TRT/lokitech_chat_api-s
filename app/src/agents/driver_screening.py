@@ -1,10 +1,12 @@
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
+from langchain_core.tools import StructuredTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
 from ..managers.company_questions_manager import CompanyQuestionsManager
+from ..tools.driver_screening_tools import DriverScreeningTools
 import json
 from ..prompts.driver_screening import DRIVER_SCREENING_PROMPT_TEMPLATE
 from ..utils.session_manager import get_session_manager
@@ -20,11 +22,12 @@ class DriverScreeningAgent:
         self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
         self.questions_manager = CompanyQuestionsManager()
         self.session_manager = get_session_manager()
+        self.screening_tools = DriverScreeningTools()
         self.tools = [
-            Tool(
-                name="driver_screening",
-                description="Conducts structured driver screening conversations",
-                func=lambda x: f"Screening response: {x}"
+            StructuredTool.from_function(
+                func=self.screening_tools._store_driver_screening,
+                name="store_driver_screening",
+                description="Store all driver screening data including responses and evaluation in one operation"
             )
         ]
         
@@ -70,8 +73,10 @@ class DriverScreeningAgent:
         if dsp_code:
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
         
-        prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.format(
-            company_specific_questions=company_questions_text
+        # The prompt template uses double curly braces for JSON examples
+        # We only need to replace the company_specific_questions placeholder
+        prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.replace(
+            "{{company_specific_questions}}", company_questions_text
         )
         
         return ChatPromptTemplate.from_messages([
@@ -94,6 +99,15 @@ class DriverScreeningAgent:
             Response from the agent
         """
         logger.info(f"Processing message for session_id: {session_id}, dsp_code: {dsp_code}")
+        logger.info(f"Received user input: '{user_input}'")
+        
+        # Validate session_id
+        if not session_id or session_id.strip() == "":
+            # Generate a unique session ID if none provided
+            import time
+            timestamp = int(time.time())
+            session_id = f"SESSION-{timestamp}"
+            logger.info(f"Generated new session_id: {session_id}")
         
         # Create a unique session ID that includes the dsp_code to ensure
         # we get the right prompt with company-specific questions
@@ -110,7 +124,14 @@ class DriverScreeningAgent:
             prompt=prompt
         )
         
-        response = executor.invoke({"input": user_input})
+        # Add session_id and dsp_code to the input context
+        input_context = {
+            "input": user_input,
+            "session_id": session_id,
+            "dsp_code": dsp_code if dsp_code else "unknown"
+        }
+        
+        response = executor.invoke(input_context)
         logger.info("Message processed successfully")
         return response["output"]
 

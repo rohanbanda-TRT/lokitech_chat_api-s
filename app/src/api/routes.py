@@ -6,6 +6,9 @@ from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAg
 from typing import Optional, List
 from ..managers.company_questions_manager import CompanyQuestionsManager
 from ..models.question_models import Question
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 settings = get_settings()
@@ -113,10 +116,22 @@ async def chat(request: ChatRequest):
          description="Conducts an interactive screening conversation with potential drivers")
 async def driver_screening(request: DriverScreeningRequest):
     try:
-        default_message = (
-            """Start"""
-        )
+        # Validate session_id
+        session_id = request.session_id
+        if not session_id or session_id.strip() == "":
+            # Generate a unique session ID if none provided
+            import uuid
+            session_id = str(uuid.uuid4())
+            logger.info(f"Generated new session_id: {session_id}")
         
+        # Validate dsp_code
+        dsp_code = request.dsp_code
+        if not dsp_code or dsp_code.strip() == "":
+            dsp_code = "DEMO"  # Use a default DSP code
+            logger.info(f"Using default dsp_code: {dsp_code}")
+        
+        # Validate message
+        default_message = f"Start [DSP: {dsp_code}, Session: {session_id}]"
         message = (
             default_message
             if not request.message or request.message.strip() == ""
@@ -124,18 +139,31 @@ async def driver_screening(request: DriverScreeningRequest):
         )
         
         # Process message using driver screening agent with dsp_code if provided
-        result = driver_screening_agent.process_message(
-            message, 
-            request.session_id,
-            request.dsp_code
-        )
-        
-        return {
-            "response": result,
-        }
+        try:
+            result = driver_screening_agent.process_message(
+                message, 
+                session_id,
+                dsp_code
+            )
+            
+            return {
+                "response": result,
+                "session_id": session_id,
+                "dsp_code": dsp_code
+            }
+        except Exception as e:
+            logger.error(f"Error processing message: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error processing message: {str(e)}"
+            )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in driver_screening endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Unexpected error: {str(e)}"
+        )
 
 @router.post("/company-admin",
          summary="Manage company-specific screening questions",

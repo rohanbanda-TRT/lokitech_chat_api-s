@@ -41,14 +41,11 @@ def start_chat(page_key, endpoint, dsp_code, session_id):
     """Start a new chat session"""
     try:
         payload = {
-            "message": "Start",
+            "message": f"Start [DSP: {dsp_code}, Session: {session_id}]",
             "session_id": session_id,
             "dsp_code": dsp_code
         }
         
-        if dsp_code:
-            payload["dsp_code"] = dsp_code
-            
         response = requests.post(
             f"http://127.0.0.1:8000/{endpoint}",
             json=payload
