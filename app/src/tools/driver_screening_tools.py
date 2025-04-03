@@ -3,6 +3,7 @@ import json
 import logging
 from pydantic import BaseModel, Field
 from ..managers.driver_screening_manager import DriverScreeningManager
+from .dsp_api_client import DSPApiClient, ApplicantDetails
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -46,6 +47,45 @@ class DriverScreeningTools:
     """
     def __init__(self):
         self.screening_manager = DriverScreeningManager()
+        self.dsp_api_client = DSPApiClient()
+    
+    def _get_applicant_details(self, dsp_code: str) -> str:
+        """
+        Get applicant details from the DSP API
+        
+        Args:
+            dsp_code: The DSP short code
+            
+        Returns:
+            JSON string with applicant details or error message
+        """
+        try:
+            logger.info(f"Fetching applicant details for DSP code: {dsp_code}")
+            
+            # Use default values for station_code and applicant_id as per requirements
+            applicant_details = self.dsp_api_client.get_applicant_details(
+                dsp_code=dsp_code,
+                station_code="DJE1",  # Static for now
+                applicant_id=5  # Static for now
+            )
+            
+            if applicant_details:
+                return json.dumps({
+                    "success": True,
+                    "data": applicant_details.model_dump()
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "message": f"Failed to retrieve applicant details for DSP code: {dsp_code}"
+                })
+                
+        except Exception as e:
+            logger.error(f"Error retrieving applicant details: {e}")
+            return json.dumps({
+                "success": False,
+                "message": f"Error: {str(e)}"
+            })
     
     def _store_driver_screening(self, input_str: str) -> str:
         """

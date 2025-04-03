@@ -25,6 +25,24 @@ class SessionManager:
         self.sessions = {}
         logger.info("SessionManager initialized")
     
+    def session_exists(self, session_id: str, agent_type: Optional[str] = None) -> bool:
+        """
+        Check if a session exists.
+        
+        Args:
+            session_id: The session ID to check
+            agent_type: Optional agent type to specify which agent's session to check
+            
+        Returns:
+            True if session exists, False otherwise
+        """
+        if agent_type:
+            key = f"{agent_type}_{session_id}"
+            return key in self.sessions
+        else:
+            # Check if any session with this session_id exists regardless of agent type
+            return any(k.endswith(f"_{session_id}") for k in self.sessions.keys())
+    
     def get_or_create_session(
         self, 
         session_id: str, 
