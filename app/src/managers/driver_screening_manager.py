@@ -280,6 +280,44 @@ class DriverScreeningManager:
             logger.error(f"Error retrieving screening session: {e}")
             return None
     
+    def add_interview_details(self, driver_id: str, dsp_code: str, session_id: str, 
+                              interview_data: Dict[str, Any]) -> bool:
+        """
+        Add interview details to a screening session
+        
+        Args:
+            driver_id: Unique identifier for the driver
+            dsp_code: The DSP code for the company
+            session_id: Unique identifier for the screening session
+            interview_data: Dictionary containing interview details (scheduled, date, time, etc.)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Adding interview details for driver_id: {driver_id}, dsp_code: {dsp_code}, session_id: {session_id}")
+            
+            # Update the interview details for the specific screening session
+            result = self.collection.update_one(
+                {
+                    "driver_id": driver_id,
+                    "screenings.dsp_code": dsp_code,
+                    "screenings.session_id": session_id
+                },
+                {
+                    "$set": {
+                        "screenings.$.interview_details": interview_data
+                    }
+                }
+            )
+            
+            logger.info(f"Interview details added: {result.modified_count} documents modified")
+            return result.modified_count > 0
+                
+        except Exception as e:
+            logger.error(f"Error adding interview details: {e}")
+            return False
+    
     def get_driver(self, driver_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a driver by driver_id

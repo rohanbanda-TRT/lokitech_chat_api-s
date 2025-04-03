@@ -22,6 +22,14 @@ class OverallResult(BaseModel):
     pass_result: bool
     evaluation_summary: str
 
+class InterviewDetails(BaseModel):
+    scheduled: bool
+    date: Optional[str] = None
+    time: Optional[str] = None
+    calendar_event_id: Optional[str] = None
+    event_link: Optional[str] = None
+    meet_link: Optional[str] = None
+
 class StoreDriverScreeningInput(BaseModel):
     driver_id: str
     driver_name: str
@@ -30,6 +38,7 @@ class StoreDriverScreeningInput(BaseModel):
     session_id: str
     responses: List[ResponseItem]
     overall_result: OverallResult
+    interview_details: Optional[InterviewDetails] = None
 
 class DriverScreeningTools:
     """
@@ -113,8 +122,29 @@ class DriverScreeningTools:
                 input_data.overall_result.evaluation_summary
             )
             
+            # 5. Store interview details if available
+            interview_details_stored = True
+            if input_data.interview_details:
+                # Store interview details in the database
+                # Note: This assumes the manager has a method to store interview details
+                # If not, you would need to implement it in the DriverScreeningManager
+                try:
+                    interview_data = input_data.interview_details.model_dump()
+                    # Add interview details to the session metadata or as a separate record
+                    # This is a placeholder - implement according to your database schema
+                    logger.info(f"Storing interview details: {interview_data}")
+                    interview_details_stored = self.screening_manager.add_interview_details(
+                        input_data.driver_id,
+                        input_data.dsp_code,
+                        session_id,
+                        interview_data
+                    )
+                except Exception as e:
+                    interview_details_stored = False
+                    logger.error(f"Failed to store interview details: {e}")
+            
             # Return overall status
-            if all_responses_added and result_updated:
+            if all_responses_added and result_updated and interview_details_stored:
                 return json.dumps({
                     "success": True,
                     "message": "Driver screening data stored successfully",
@@ -126,7 +156,8 @@ class DriverScreeningTools:
                     "message": "Some parts of the driver screening data could not be stored",
                     "session_id": session_id,
                     "responses_added": all_responses_added,
-                    "result_updated": result_updated
+                    "result_updated": result_updated,
+                    "interview_details_stored": interview_details_stored
                 })
                 
         except Exception as e:

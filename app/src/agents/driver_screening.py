@@ -10,7 +10,25 @@ from ..tools.driver_screening_tools import DriverScreeningTools
 import json
 from ..prompts.driver_screening import DRIVER_SCREENING_PROMPT_TEMPLATE
 from ..utils.session_manager import get_session_manager
+from langchain_community.tools.gmail.utils import (
+    build_resource_service,
+    get_gmail_credentials,
+)
+credentials = get_gmail_credentials(
+    token_file="token.json",
+    scopes=["https://www.googleapis.com/auth/calendar"],
+    client_secrets_file="credentials.json",
+)
+
+calendar_service = build_resource_service(
+    credentials=credentials, service_name="calendar", service_version="v3"
+)
 import logging
+from ..tools.googleCalender import CreateGoogleCalendarEvent, ListGoogleCalendarEvents
+createeventtool = CreateGoogleCalendarEvent.from_api_resource(calendar_service)
+listeventtool = ListGoogleCalendarEvents.from_api_resource(calendar_service)
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,7 +47,9 @@ class DriverScreeningAgent:
                 func=self.screening_tools._store_driver_screening,
                 name="store_driver_screening",
                 description="Store all driver screening data including responses and evaluation in one operation"
-            )
+            ),
+            createeventtool,
+            listeventtool
         ]
         
     def _get_company_specific_questions_text(self, dsp_code: str) -> str:
