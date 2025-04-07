@@ -56,6 +56,14 @@ class DriverScreeningRequest(BaseModel):
         None,
         description="Optional DSP code to use company-specific questions"
     )
+    station_code: Optional[str] = Field(
+        None,
+        description="Station code for the DSP location"
+    )
+    applicant_id: Optional[int] = Field(
+        None,
+        description="Applicant ID for the driver being screened"
+    )
 
 class CompanyAdminRequest(BaseModel):
     message: str
@@ -130,8 +138,12 @@ async def driver_screening(request: DriverScreeningRequest):
             dsp_code = "DEMO"  # Use a default DSP code
             logger.info(f"Using default dsp_code: {dsp_code}")
         
+        # Get station_code and applicant_id
+        station_code = request.station_code
+        applicant_id = request.applicant_id
+        
         # Validate message
-        default_message = f"Start [DSP: {dsp_code}, Session: {session_id}]"
+        default_message = f"Start [DSP: {dsp_code}, Session: {session_id}, Station Code: {station_code}, Applicant ID: {applicant_id}]"
         message = (
             default_message
             if not request.message or request.message.strip() == ""
@@ -140,17 +152,48 @@ async def driver_screening(request: DriverScreeningRequest):
         
         # Process message using driver screening agent with dsp_code if provided
         try:
+            # Get applicant details first if this is a new session
+            applicant_details = None
+            if message.startswith("Start [DSP:") or message == default_message:
+                # This is likely the first message, try to get applicant details
+                from ..tools.dsp_api_client import DSPApiClient
+                api_client = DSPApiClient()
+                
+                # Use provided station_code and applicant_id if available, otherwise use defaults
+                station_code_to_use = station_code if station_code else "DJE1"
+                applicant_id_to_use = applicant_id if applicant_id is not None else 5
+                
+                applicant_details_obj = api_client.get_applicant_details(
+                    dsp_code=dsp_code,
+                    station_code=station_code_to_use,
+                    applicant_id=applicant_id_to_use
+                )
+                
+                if applicant_details_obj:
+                    applicant_details = applicant_details_obj.model_dump()
+                    logger.info(f"Retrieved applicant details: {applicant_details}")
+            
             result = driver_screening_agent.process_message(
                 message, 
                 session_id,
-                dsp_code
+                dsp_code,
+                station_code,
+                applicant_id
             )
             
-            return {
+            response_data = {
                 "response": result,
                 "session_id": session_id,
-                "dsp_code": dsp_code
+                "dsp_code": dsp_code,
+                "station_code": station_code,
+                "applicant_id": applicant_id
             }
+            
+            # Include applicant details in the response if available
+            if applicant_details:
+                response_data["applicant_details"] = applicant_details
+            
+            return response_data
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
             raise HTTPException(

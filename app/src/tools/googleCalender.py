@@ -12,7 +12,7 @@ from langchain_community.tools.gmail.utils import (
     build_resource_service,
     get_gmail_credentials,
 )
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool, tool
 
 if TYPE_CHECKING:

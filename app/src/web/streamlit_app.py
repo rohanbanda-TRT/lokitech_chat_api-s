@@ -24,6 +24,10 @@ def initialize_session_state():
         st.session_state.chat_started = {"user": False, "admin": False}
     if "last_dsp_code" not in st.session_state:
         st.session_state.last_dsp_code = {"user": "", "admin": ""}
+    if "station_code" not in st.session_state:
+        st.session_state.station_code = ""
+    if "applicant_id" not in st.session_state:
+        st.session_state.applicant_id = 0
 
 def get_chat_history(page_key):
     """Get chat history for a specific page"""
@@ -37,13 +41,15 @@ def add_message(page_key, role, content):
         st.session_state.messages[page_key] = []
     st.session_state.messages[page_key].append({"role": role, "content": content})
 
-def start_chat(page_key, endpoint, dsp_code, session_id):
+def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant_id):
     """Start a new chat session"""
     try:
         payload = {
-            "message": f"Start [DSP: {dsp_code}, Session: {session_id}]",
+            "message": f"Start [DSP: {dsp_code}, Session: {session_id}, Station Code: {station_code}, Applicant ID: {applicant_id}]",
             "session_id": session_id,
-            "dsp_code": dsp_code
+            "dsp_code": dsp_code,
+            "station_code": station_code,
+            "applicant_id": applicant_id
         }
         
         response = requests.post(
@@ -53,6 +59,22 @@ def start_chat(page_key, endpoint, dsp_code, session_id):
         if response.status_code == 200:
             assistant_message = response.json()["response"]
             add_message(page_key, "assistant", assistant_message)
+            
+            # If this is the driver screening endpoint, display applicant details if available
+            if endpoint == "driver-screening" and "applicant_details" in response.json():
+                applicant_details = response.json()["applicant_details"]
+                if applicant_details:
+                    details_message = f"""
+**Applicant Details:**
+- Name: {applicant_details.get('firstName', '')} {applicant_details.get('lastName', '')}
+- DSP: {applicant_details.get('dspName', '')} ({applicant_details.get('dspShortCode', '')})
+- Station: {applicant_details.get('dspStationCode', '')}
+- Mobile: {applicant_details.get('mobileNumber', '')}
+- Status: {applicant_details.get('applicantStatus', '')}
+- ID: {applicant_details.get('applicantID', '')}
+"""
+                    add_message(page_key, "system", details_message)
+            
             st.session_state.chat_started[page_key] = True
             st.session_state.last_dsp_code[page_key] = dsp_code
             return True
@@ -70,6 +92,13 @@ def user_page():
     # DSP code input
     dsp_code = st.text_input("DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code")
     
+    # Add station code and applicant ID inputs
+    col1, col2 = st.columns(2)
+    with col1:
+        station_code = st.text_input("Station Code", value="DJE1", key="user_station_code")
+    with col2:
+        applicant_id = st.number_input("Applicant ID", value=5, min_value=1, key="user_applicant_id")
+    
     # Check if DSP code has changed and we need to restart chat
     dsp_code_changed = dsp_code != st.session_state.last_dsp_code["user"] and dsp_code
     
@@ -79,11 +108,13 @@ def user_page():
     if st.button("Start Screening", disabled=start_button_disabled, key="start_user_chat") or dsp_code_changed:
         # Update DSP code
         st.session_state.dsp_code = dsp_code
+        st.session_state.station_code = station_code
+        st.session_state.applicant_id = applicant_id
         # Clear previous messages
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         # Start new chat
-        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id):
+        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id, station_code, applicant_id):
             st.rerun()
     
     # Reset button
@@ -114,6 +145,8 @@ def user_page():
                 
                 if dsp_code:
                     payload["dsp_code"] = dsp_code
+                    payload["station_code"] = station_code
+                    payload["applicant_id"] = applicant_id
                     
                 response = requests.post(
                     "http://127.0.0.1:8000/driver-screening",
@@ -141,6 +174,13 @@ def admin_page():
     # DSP code input (required for admin)
     dsp_code = st.text_input("DSP Code (Required)", value=st.session_state.dsp_code, key="admin_dsp_code")
     
+    # Add station code and applicant ID inputs for consistency
+    col1, col2 = st.columns(2)
+    with col1:
+        station_code = st.text_input("Station Code", value="DJE1", key="admin_station_code")
+    with col2:
+        applicant_id = st.number_input("Applicant ID", value=5, min_value=1, key="admin_applicant_id")
+    
     if not dsp_code:
         st.warning("Please enter a DSP Code to manage questions")
         return
@@ -158,7 +198,7 @@ def admin_page():
         if "admin" in st.session_state.messages:
             st.session_state.messages["admin"] = []
         # Start new chat
-        if start_chat("admin", "company-admin", dsp_code, st.session_state.admin_session_id):
+        if start_chat("admin", "company-admin", dsp_code, st.session_state.admin_session_id, station_code, applicant_id):
             st.rerun()
     
     # Reset button
