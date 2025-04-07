@@ -206,3 +206,72 @@ class DriverScreeningTools:
                 "success": False,
                 "message": f"Error: {str(e)}"
             })
+
+    def _update_applicant_status(self, input_str: str) -> str:
+        """
+        Update the applicant status based on screening results
+        
+        Args:
+            input_str: JSON string containing the update information
+            
+        Returns:
+            Success or error message
+        """
+        try:
+            logger.info(f"Updating applicant status: {input_str}")
+            
+            # Parse input
+            input_data = json.loads(input_str)
+            
+            # Extract required fields
+            dsp_code = input_data.get("dsp_code")
+            applicant_id = input_data.get("applicant_id")
+            current_status = input_data.get("current_status", "INPROGRESS")
+            new_status = input_data.get("new_status")  # Should be "PASSED" or "FAILED"
+            emp_id = input_data.get("emp_id", applicant_id)  # Use applicant_id as emp_id if not provided
+            
+            # Validate required fields
+            if not dsp_code:
+                return json.dumps({
+                    "success": False,
+                    "message": "Missing required field: dsp_code"
+                })
+                
+            if not applicant_id:
+                return json.dumps({
+                    "success": False,
+                    "message": "Missing required field: applicant_id"
+                })
+                
+            if not new_status:
+                return json.dumps({
+                    "success": False,
+                    "message": "Missing required field: new_status"
+                })
+                
+            # Update the applicant status
+            status_updated = self.dsp_api_client.update_applicant_status(
+                dsp_code=dsp_code,
+                applicant_id=applicant_id,
+                current_status=current_status,
+                new_status=new_status,
+                applicant_data={}  # Empty dict to ensure we don't modify any other data
+            )
+            
+            if status_updated:
+                return json.dumps({
+                    "success": True,
+                    "message": f"Successfully updated applicant status to {new_status}"
+                })
+            else:
+                return json.dumps({
+                    "success": False,
+                    "message": f"Failed to update applicant status to {new_status}"
+                })
+                
+        except Exception as e:
+            logger.error(f"Error updating applicant status: {e}")
+            return json.dumps({
+                "success": False,
+                "message": f"Error: {str(e)}"
+            })

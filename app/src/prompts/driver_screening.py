@@ -121,6 +121,16 @@ Use the store_driver_screening tool with the following JSON format after confirm
 }}
 ```
 
+IMPORTANT: After storing the screening data, you MUST update the applicant status in the system using the update_applicant_status tool with the following JSON format:
+```json
+{{
+  "dsp_code": "[DSP code from the conversation]",
+  "applicant_id": [Applicant ID from the applicant_details],
+  "current_status": "[Current status from the applicant_details, default to INPROGRESS]",
+  "new_status": "[PASSED or FAILED based on the screening result]"
+}}
+```
+
 Use a consistent driver_id format (e.g., "DRIVER-" followed by the first 5 letters of their name and a timestamp) to ensure uniqueness.
 """
 
@@ -243,6 +253,16 @@ Use the store_driver_screening tool with the following JSON format after confirm
     "event_link": "[URL to the calendar event, if available]",
     "meet_link": "[Google Meet video conference link, if available]"
   }}
+}}
+```
+
+IMPORTANT: After storing the screening data, you MUST update the applicant status in the system using the update_applicant_status tool with the following JSON format:
+```json
+{{
+  "dsp_code": "[DSP code from the conversation]",
+  "applicant_id": [Applicant ID from the applicant_details],
+  "current_status": "[Current status from the applicant_details, default to INPROGRESS]",
+  "new_status": "[PASSED or FAILED based on the screening result]"
 }}
 ```
 
