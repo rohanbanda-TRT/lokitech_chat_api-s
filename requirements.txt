@@ -9,3 +9,4 @@ uvicorn
 streamlit
 pymongo
 firebase-admin
+requests

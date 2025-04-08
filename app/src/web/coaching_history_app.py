@@ -1,131 +1,126 @@
 """
-Streamlit web application for the Coaching History Analyzer
+Streamlit app for generating coaching feedback with historical context
 """
 
-import os
-import json
 import streamlit as st
-from dotenv import load_dotenv
-from app.src.agents.coaching_history_analyzer import CoachingHistoryAnalyzer
+import requests
+import json
+import os
+from typing import Dict, Any
 
-# Load environment variables
-load_dotenv()
+# API URL
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
-def initialize_analyzer():
+# Page configuration
+st.set_page_config(
+    page_title="Coaching Feedback Generator",
+    page_icon="🚚",
+    layout="wide"
+)
+
+def generate_coaching_feedback(query: str) -> Dict[str, Any]:
     """
-    Initialize the Coaching History Analyzer
+    Generate coaching feedback by calling the API
+    
+    Args:
+        query: Coaching query/reason
+        
+    Returns:
+        API response as dictionary
     """
-    # Get API key
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        st.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
-        st.stop()
-    
-    # Path to coaching data
-    coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
-    if not os.path.exists(coaching_data_path):
-        coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
-    
-    if not os.path.exists(coaching_data_path):
-        st.error(f"Coaching data file not found at {coaching_data_path}")
-        st.stop()
-    
-    # Initialize the analyzer
-    return CoachingHistoryAnalyzer(api_key, coaching_data_path)
+    try:
+        # Prepare request data
+        request_data = {
+            "query": query
+        }
+        
+        # Make API request
+        response = requests.post(
+            f"{API_URL}/coaching-feedback",
+            json=request_data
+        )
+        
+        # Check response
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Error: {response.status_code} - {response.text}")
+            return {"error": response.text}
+            
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return {"error": str(e)}
 
 def main():
     """
-    Main function for the Streamlit web application
+    Main function for the Streamlit app
     """
-    # Set page config
-    st.set_page_config(
-        page_title="DSP Coaching History Analyzer",
-        page_icon="🚚",
-        layout="wide",
-        initial_sidebar_state="expanded"
+    # Header
+    st.title("📋 Coaching Feedback Generator")
+    st.markdown("Generate structured coaching feedback with historical context")
+    
+    # Sidebar
+    st.sidebar.header("About")
+    st.sidebar.info(
+        "This application generates structured coaching feedback for delivery drivers "
+        "based on their coaching history. It provides a statement of the problem, "
+        "prior discussion points, and recommended corrective actions."
     )
     
-    # Page title
-    st.title("DSP Coaching History Analyzer")
-    st.markdown("Analyze driver coaching history and generate structured feedback")
-    
-    # Initialize analyzer
-    analyzer = initialize_analyzer()
-    
-    # Sidebar for coaching categories
-    st.sidebar.header("Coaching Categories")
-    
-    # Get unique categories from the coaching history
-    categories = set()
-    for record in analyzer.coaching_history:
-        if 'Severity' in record and record['Severity']:
-            categories.add(record['Severity'])
-    
-    # Sort categories alphabetically
-    categories = sorted(list(categories))
-    
-    # Employee information
-    st.sidebar.header("Employee Information")
-    employee_name = st.sidebar.text_input("Employee Name", "Moises")
-    
-    # Category selection
-    selected_category = st.sidebar.selectbox(
-        "Select Coaching Category",
-        options=categories,
-        index=0 if categories else None
+    st.sidebar.header("Instructions")
+    st.sidebar.markdown(
+        "1. Enter your coaching query\n"
+        "2. The system will automatically identify the coaching category\n"
+        "3. Click 'Generate Feedback' to get structured coaching feedback with historical context"
     )
     
-    # Additional reason
-    coaching_reason = st.sidebar.text_area(
-        "Additional Details (Optional)",
-        f"{employee_name} was cited for a {selected_category.lower() if selected_category else ''} issue while operating a company vehicle."
-    )
-    
-    # Main content area
+    # Main content
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.header("Coaching History")
+        st.subheader("Enter Coaching Query")
         
-        if selected_category:
-            # Get relevant coaching history
-            relevant_history = analyzer._get_relevant_coaching_history(selected_category)
-            
-            if relevant_history:
-                for i, record in enumerate(relevant_history, 1):
-                    with st.expander(f"Record {i}: {record.get('Date', 'Unknown Date')} - {record.get('Severity', 'Unknown Issue')}"):
-                        st.write(f"**Statement of Problem:** {record.get('Statement_of_Problem', 'No statement provided')}")
-                        st.write(f"**Prior Discussion:** {record.get('Prior_Discussion', 'No prior discussion')}")
-                        st.write(f"**Corrective Action:** {record.get('Corrective_Action', 'No corrective action specified')}")
-            else:
-                st.info(f"No coaching history found for category: {selected_category}")
-    
-    with col2:
-        st.header("Analysis Results")
+        # Coaching query
+        query = st.text_area(
+            "Coaching Query", 
+            placeholder="e.g., Moises was cited for a speeding violation while operating a company vehicle.",
+            height=150
+        )
+        
+        # Example queries
+        st.markdown("#### Example Queries")
+        examples = [
+            "John was cited for a hard braking violation while operating a company vehicle.",
+            "Maria was cited for not maintaining proper following distance during her route.",
+            "Carlos received feedback about his CDF score being below company standards.",
+            "Alex was observed using his phone while driving, which is a driver distraction violation."
+        ]
+        
+        for example in examples:
+            if st.button(f"Use Example: {example[:50]}...", key=example):
+                # Use this example
+                st.session_state.query = example
+                # Rerun to update the text area
+                st.rerun()
         
         # Generate button
-        if st.button("Generate Coaching Analysis", type="primary"):
-            with st.spinner("Analyzing coaching history..."):
-                if not selected_category:
-                    st.error("Please select a coaching category")
-                else:
-                    # Get analysis
-                    result = analyzer.analyze_coaching_history(
-                        employee_name,
-                        selected_category,
-                        coaching_reason
-                    )
+        if st.button("Generate Feedback", type="primary"):
+            if not query:
+                st.error("Please enter a coaching query")
+            else:
+                with st.spinner("Generating coaching feedback..."):
+                    # Call API
+                    result = generate_coaching_feedback(query=query)
                     
-                    # Display result
-                    st.markdown(result)
+                    # Display results in the second column
+                    if "error" not in result:
+                        with col2:
+                            st.subheader("Coaching Feedback")
+                            st.markdown(result.get("feedback", "No feedback generated"))
                     
-                    # Option to download as text
-                    st.download_button(
-                        label="Download Analysis",
-                        data=result,
-                        file_name=f"{employee_name}_{selected_category}_analysis.txt",
-                        mime="text/plain"
-                    )
+    with col2:
+        st.subheader("Coaching Feedback")
+        st.info("Enter your coaching query and click 'Generate Feedback' to see results here")
 
 if __name__ == "__main__":
     main()

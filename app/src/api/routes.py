@@ -1,12 +1,14 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from ..agents.performance_analyzer import PerformanceAnalyzerAgent
+from ..agents.coaching_history_analyzer import CoachingFeedbackGenerator
 from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
 from typing import Optional, List
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..models.question_models import Question
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,12 @@ content_agent = ContentGeneratorAgent(settings.OPENAI_API_KEY)
 driver_screening_agent = DriverScreeningAgent(settings.OPENAI_API_KEY)
 company_admin_agent = CompanyAdminAgent(settings.OPENAI_API_KEY)
 performance_analyzer = PerformanceAnalyzerAgent(settings.OPENAI_API_KEY)
+
+# Initialize coaching feedback generator
+coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
+if not os.path.exists(coaching_data_path):
+    coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
+coaching_feedback_generator = CoachingFeedbackGenerator(settings.OPENAI_API_KEY, coaching_data_path)
 
 class PerformanceRequest(BaseModel):
     messages: str
@@ -82,6 +90,13 @@ class CompanyAdminRequest(BaseModel):
 class CompanyQuestionsRequest(BaseModel):
     dsp_code: str
     questions: List[Question]
+
+class CoachingFeedbackRequest(BaseModel):
+    query: str = Field(
+        ...,
+        min_length=2,
+        description="Coaching query (e.g., 'Moises was cited for a speeding violation while operating a company vehicle.')"
+    )
 
 
 @router.post("/analyze-performance",
@@ -262,4 +277,28 @@ async def save_company_questions(request: CompanyQuestionsRequest):
         }
     
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/coaching-feedback",
+         summary="Generate structured coaching feedback",
+         description="Generates structured coaching feedback with historical context")
+async def generate_coaching_feedback(request: CoachingFeedbackRequest):
+    try:
+        # Validate input
+        if not request.query:
+            raise HTTPException(
+                status_code=400, 
+                detail="Coaching query is required"
+            )
+        
+        # Generate coaching feedback
+        result = coaching_feedback_generator.generate_feedback(request.query)
+        
+        return {
+            "query": request.query,
+            "feedback": result
+        }
+    
+    except Exception as e:
+        logger.error(f"Error generating coaching feedback: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

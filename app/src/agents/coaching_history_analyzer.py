@@ -1,18 +1,22 @@
 """
-Agent for analyzing driver coaching history and providing structured feedback.
+Agent for generating structured coaching feedback with historical context.
 """
 
 import os
 import json
 import logging
 import pandas as pd
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.tools import Tool
+from pydantic import BaseModel, Field
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain_core.runnables import RunnablePassthrough
 from dotenv import load_dotenv
-from ..prompts.coaching_history import COACHING_HISTORY_PROMPT_TEMPLATE
+from ..prompts.coaching_history import COACHING_HISTORY_PROMPT_TEMPLATE_STR
 
 # Configure logging
 logging.basicConfig(
@@ -21,14 +25,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class CoachingHistoryAnalyzer:
+class CoachingFeedbackGenerator:
     """
-    Agent for analyzing delivery driver coaching history and providing structured feedback.
+    Agent for generating structured coaching feedback with historical context.
     """
     
     def __init__(self, api_key: str, coaching_data_path: str):
         """
-        Initialize the Coaching History Analyzer Agent.
+        Initialize the Coaching Feedback Generator.
         
         Args:
             api_key: OpenAI API key
@@ -37,18 +41,20 @@ class CoachingHistoryAnalyzer:
         self.api_key = api_key
         self.coaching_data_path = coaching_data_path
         self.coaching_history = self._load_coaching_data()
-        self.llm = ChatOpenAI(temperature=0.2, api_key=api_key)
+        self.llm = ChatOpenAI(temperature=0.2, api_key=api_key, verbose=True)
         
-        # Create prompt
-        self.prompt = PromptTemplate(
-            input_variables=["employee_name", "coaching_category", "coaching_reason", "coaching_history"],
-            template=COACHING_HISTORY_PROMPT_TEMPLATE
+        # Create the prompt template
+        self.prompt = ChatPromptTemplate.from_template(COACHING_HISTORY_PROMPT_TEMPLATE_STR)
+        
+        # Create the chain
+        self.chain = (
+            {"query": RunnablePassthrough(), "coaching_history": self._get_coaching_history}
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
         )
         
-        # Create chain using LCEL (LangChain Expression Language)
-        self.chain = self.prompt | self.llm | StrOutputParser()
-        
-        logger.info("Coaching History Analyzer initialized successfully")
+        logger.info("Coaching Feedback Generator initialized successfully")
     
     def _load_coaching_data(self) -> List[Dict[str, Any]]:
         """
@@ -85,107 +91,110 @@ class CoachingHistoryAnalyzer:
             logger.error(f"Error loading coaching data: {str(e)}")
             raise
     
-    def _get_relevant_coaching_history(self, category: str) -> List[Dict[str, Any]]:
+    def _get_coaching_history(self, query: str) -> str:
         """
-        Get coaching history records relevant to the specified category.
+        Extract category from query and retrieve relevant coaching history.
         
         Args:
-            category: The coaching category to filter by
+            query: The coaching query
             
         Returns:
-            List of relevant coaching history records
+            Formatted string with coaching history
         """
         try:
-            # Filter coaching history by category or severity
-            relevant_history = []
+            # Use a simple LLM call to extract the category
+            category_prompt = ChatPromptTemplate.from_template(
+                """Extract the coaching category from the following query. 
+                Return only the category name, nothing else.
+                
+                Common categories:
+                - Speeding Violations
+                - Hard Braking
+                - Following Distance
+                - Traffic Light Violation
+                - CDF Score
+                - Sign Violation
+                - Driver Distraction
+                - Total Breaches
+                
+                Query: {query}
+                
+                Category:"""
+            )
+            
+            category_chain = category_prompt | self.llm | StrOutputParser()
+            category = category_chain.invoke({"query": query}).lower().strip()
+            
+            logger.info(f"Extracted category from query: {category}")
+            
+            # Find relevant records
+            relevant_records = []
             
             for record in self.coaching_history:
-                # Check if category matches either the Category field or Severity field
-                if (str(record.get('Category', '')).lower() == category.lower() or
-                    str(record.get('Severity', '')).lower() == category.lower()):
-                    relevant_history.append(record)
+                record_category = str(record.get('Category', '')).lower()
+                record_severity = str(record.get('Severity', '')).lower()
+                
+                if category in record_category or category in record_severity:
+                    relevant_records.append(record)
             
-            logger.info(f"Found {len(relevant_history)} relevant coaching records for category: {category}")
-            return relevant_history
+            logger.info(f"Found {len(relevant_records)} relevant coaching records for category: {category}")
+            
+            # Format the results
+            if not relevant_records:
+                return f"No coaching history found for category '{category}'."
+            
+            formatted_records = []
+            
+            for i, record in enumerate(relevant_records, 1):
+                date = record.get('Date', 'Unknown Date')
+                severity = record.get('Severity', 'Unknown Issue')
+                statement = record.get('Statement_of_Problem', 'No statement provided')
+                prior = record.get('Prior_Discussion', 'No prior discussion')
+                action = record.get('Corrective_Action', 'No corrective action specified')
+                
+                entry = f"Record {i}:\n"
+                entry += f"Date: {date}\n"
+                entry += f"Issue: {severity}\n"
+                entry += f"Statement of Problem: {statement}\n"
+                entry += f"Prior Discussion: {prior}\n"
+                entry += f"Corrective Action: {action}\n"
+                
+                formatted_records.append(entry)
+            
+            return "\n\n".join(formatted_records)
             
         except Exception as e:
-            logger.error(f"Error getting relevant coaching history: {str(e)}")
-            return []
+            logger.error(f"Error retrieving coaching history: {str(e)}")
+            return f"Error retrieving coaching history: {str(e)}"
     
-    def _format_coaching_history(self, history: List[Dict[str, Any]]) -> str:
+    def generate_feedback(self, query: str) -> str:
         """
-        Format coaching history records into a readable string.
+        Generate coaching feedback based on the query.
         
         Args:
-            history: List of coaching history records
+            query: The coaching query/reason (e.g., "Moises was cited for a speeding violation")
             
         Returns:
-            Formatted coaching history string
-        """
-        if not history:
-            return "No previous coaching history found for this category."
-        
-        formatted_history = []
-        
-        for i, record in enumerate(history, 1):
-            date = record.get('Date', 'Unknown Date')
-            severity = record.get('Severity', 'Unknown Issue')
-            statement = record.get('Statement_of_Problem', 'No statement provided')
-            prior = record.get('Prior_Discussion', 'No prior discussion')
-            action = record.get('Corrective_Action', 'No corrective action specified')
-            
-            entry = f"Record {i}:\n"
-            entry += f"Date: {date}\n"
-            entry += f"Issue: {severity}\n"
-            entry += f"Statement of Problem: {statement}\n"
-            entry += f"Prior Discussion: {prior}\n"
-            entry += f"Corrective Action: {action}\n"
-            
-            formatted_history.append(entry)
-        
-        return "\n\n".join(formatted_history)
-    
-    def analyze_coaching_history(self, employee_name: str, coaching_category: str, coaching_reason: str = "") -> str:
-        """
-        Analyze coaching history and provide structured feedback.
-        
-        Args:
-            employee_name: Name of the employee
-            coaching_category: Category of coaching (e.g., "Speeding Violations")
-            coaching_reason: Additional details about the coaching reason
-            
-        Returns:
-            Formatted feedback with statement of problem, prior discussion, and corrective action
+            Structured coaching feedback
         """
         try:
-            logger.info(f"Analyzing coaching history for {employee_name} - Category: {coaching_category}")
+            logger.info(f"Generating coaching feedback for query: {query}")
             
-            # Get relevant coaching history
-            relevant_history = self._get_relevant_coaching_history(coaching_category)
+            # Run the chain
+            result = self.chain.invoke(query)
             
-            # Format coaching history
-            formatted_history = self._format_coaching_history(relevant_history)
-            
-            # Run chain with properly formatted input
-            response = self.chain.invoke({
-                "employee_name": employee_name,
-                "coaching_category": coaching_category,
-                "coaching_reason": coaching_reason,
-                "coaching_history": formatted_history
-            })
-            
-            logger.info(f"Successfully generated coaching analysis for {employee_name}")
-            return response
+            logger.info("Successfully generated coaching feedback")
+            return result
             
         except Exception as e:
-            error_msg = f"Error analyzing coaching history: {str(e)}"
+            error_msg = f"Error generating coaching feedback: {str(e)}"
             logger.error(error_msg)
-            return f"An error occurred while analyzing coaching history: {str(e)}"
+            return f"An error occurred while generating coaching feedback: {str(e)}"
 
 
 def main():
     """
-    Main function to demonstrate the usage of the CoachingHistoryAnalyzer.
+    Main function to demonstrate the usage of the CoachingFeedbackGenerator.
     """
     # Load environment variables
     load_dotenv()
@@ -201,18 +210,16 @@ def main():
         coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
     
     # Initialize the agent
-    analyzer = CoachingHistoryAnalyzer(api_key, coaching_data_path)
+    generator = CoachingFeedbackGenerator(api_key, coaching_data_path)
     
     # Sample query
-    employee_name = "Moises"
-    coaching_category = "Speeding Violations"
-    coaching_reason = "Moises was cited for a speeding violation while operating a company vehicle."
+    query = "Moises was cited for a speeding violation while operating a company vehicle."
     
-    # Analyze the coaching history
-    result = analyzer.analyze_coaching_history(employee_name, coaching_category, coaching_reason)
+    # Generate coaching feedback
+    result = generator.generate_feedback(query)
     
     # Print results
-    print("\nCoaching History Analysis:")
+    print("\nCoaching Feedback:")
     print("---------------------------")
     print(result)
 
