@@ -51,6 +51,14 @@ Route Compliance:
 - Pre-DVCR: 100% completion required
 - Post-DVCR: 100% completion required
 - Training Completion: 100% of assigned modules
+- Working Hours Compliance: Driver should not take more than 12 hours to finish a route
+- EOC (Engine Off Compliance): Driver must follow proper protocol to park the van and turn off engine while delivering
+- NCNS (No Call No Show): Driver must not miss shifts without notifying supervisor
+
+Call Compliance:
+
+- SWC-CC (Call Compliance): Driver must call the customer but not follow proper instruction to contact the customer
+- SWC-AD (Attended Delivery): Driver using delivered to household member a lot on route to avoid taking pictures. Basically not following proper delivery protocol
 
 Suggestion Reference:
 # DSP Performance Metrics and Suggestions Guide
@@ -127,6 +135,41 @@ indicators of safe driving behaviors available to us today from third party serv
 - Promptly remediate all open CAPs
 - Maintain thorough documentation
 
+### Call Compliance (SWC-CC)
+- Always follow proper customer contact protocol when instructed by the flex app
+- Make sure to call the customer number provided in the app
+- Document all call attempts in the app
+- Ensure proper training on customer contact procedures
+- Follow up with text message if call is not answered
+
+### Attended Delivery (SWC-AD)
+- Avoid overusing "delivered to household member" option to bypass photo requirements
+- Always take delivery photos when required by protocol
+- Follow proper delivery protocol for each type of delivery
+- Document actual delivery method accurately in the app
+- Ensure proper training on delivery verification procedures
+
+### Working Hours Compliance
+- Complete routes within the 12-hour time limit
+- Manage breaks efficiently to maximize productivity
+- Utilize route optimization tools to improve efficiency
+- Report any route challenges that cause delays
+- Follow proper procedures for high-volume days
+
+### Engine Off Compliance (EOC)
+- Always turn off engine when exiting the vehicle for deliveries
+- Follow proper parking protocol at each stop
+- Never leave the engine running while making deliveries
+- Ensure proper training on fuel conservation procedures
+- Adhere to company policy on engine idling
+
+### No Call No Show (NCNS)
+- Always notify supervisor in advance if unable to work a shift
+- Follow proper call-in procedures for unexpected absences
+- Maintain good attendance record
+- Understand the impact of missed shifts on team performance
+- Adhere to company attendance policy
+
 ## Quality
 
 ### Delivery Completion Rate (CDR or DCR)(11.3%)
@@ -187,6 +230,11 @@ Instructions:
 - Do not mention Driver name separately 
 - Do not use "-" to show the points
 - For DVIC violations, provide specific guidance on proper inspection timing and thoroughness
+- For SWC-CC issues, emphasize the importance of following proper customer contact procedures
+- For SWC-AD issues, stress the importance of following proper delivery protocols and taking photos when required
+- For Working Hours Compliance issues, focus on route efficiency and time management
+- For EOC issues, emphasize the importance of turning off the engine during deliveries
+- For NCNS issues, stress the importance of proper communication and attendance procedures
 
 Example Input:  
 "Shedlens Jean got 97.9% in CDR"  
