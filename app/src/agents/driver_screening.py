@@ -56,11 +56,6 @@ class DriverScreeningAgent:
         self.screening_tools = DriverScreeningTools()
         self.tools = [
             StructuredTool.from_function(
-                func=self.screening_tools._store_driver_screening,
-                name="store_driver_screening",
-                description="Store all driver screening data including responses and evaluation in one operation",
-            ),
-            StructuredTool.from_function(
                 func=self.screening_tools._update_applicant_status,
                 name="update_applicant_status",
                 description="Update the applicant status based on screening results (PASSED or FAILED)",
@@ -214,38 +209,57 @@ Remember to use the above information for internal processing only. Never share 
             return None
 
     def _update_applicant_status(
-        self, dsp_code: str, applicant_name: str, applicant_details: dict, new_status: str = "INPROGRESS"
+        self, dsp_code: str, applicant_name: str, applicant_details: dict, new_status: str = "INPROGRESS", 
+        responses: dict = None
     ):
         """
         Update the applicant status
-
+        
         Args:
             dsp_code: The DSP code
             applicant_name: The applicant name
             applicant_details: The applicant details
             new_status: The new status to set (default: INPROGRESS)
-
+            responses: Dictionary of question-answer pairs from the screening
+            
         Returns:
             True if the status was updated successfully, False otherwise
         """
         current_status = applicant_details.get("applicantStatus", "SENT")
         applicant_id = applicant_details.get("applicantID")
-
+        
+        # Only update to INPROGRESS if current status is SENT
+        if new_status == "INPROGRESS" and current_status != "SENT":
+            logger.info(
+                f"Not updating status to INPROGRESS for {applicant_name} (ID: {applicant_id}) because current status is {current_status}, not SENT"
+            )
+            return True  # Return True to allow the screening to continue
+        
         # Create an instance of the DSP API client
         from ..tools.dsp_api_client import DSPApiClient
-
+        
         api_client = DSPApiClient()
-
-        # Update the applicant status - only changing the status field
+        
+        # Prepare the applicant data with responses if available
+        applicant_data = {}
+        
+        # Add the responses if provided
+        if responses:
+            # Create the answeredJSONData structure with only responses
+            applicant_data = {
+                "responses": responses
+            }
+        
+        # Update the applicant status
         status_updated = api_client.update_applicant_status(
             dsp_code=dsp_code,
             applicant_id=applicant_id,  # Pass the applicant ID from the details
             current_status=current_status,
             new_status=new_status,
-            # Pass all applicant details to ensure we have complete information
-            applicant_data=applicant_details,
+            # Pass the responses data
+            applicant_data=applicant_data,
         )
-
+        
         if status_updated:
             logger.info(
                 f"Successfully updated applicant status to {new_status} for {applicant_name} (ID: {applicant_id})"
@@ -335,6 +349,13 @@ Remember to use the above information for internal processing only. Never share 
                         f"Mobile: '{mobile_number}', Status: '{applicant_status}'"
                     )
                     return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+                
+                # Check if the applicant status is not SENT or INPROGRESS, which means screening is already done
+                if applicant_status != "SENT" and applicant_status != "INPROGRESS":
+                    logger.warning(
+                        f"Applicant with ID {applicant_id_to_use} has already been screened. Current status: {applicant_status}"
+                    )
+                    return "Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact our support team."
                 
                 # Format the full name from first and last name
                 applicant_name = f"{first_name} {last_name}".strip()

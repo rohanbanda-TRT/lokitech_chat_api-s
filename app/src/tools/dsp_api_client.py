@@ -100,14 +100,21 @@ class DSPApiClient:
             
             url = f"{self.base_url}/PreManageApplicant/UpdatePreManageApplicantStatus"
             
-            # Prepare the payload - only update the status field
+            # Prepare the payload with status information and empty answeredJSONData
             payload = {
-                "appStatus": new_status,  # Only update the status field
+                "appStatus": new_status,
                 "empID": emp_id,
                 "dspShortCode": dsp_code,
-                # Keep the original answeredJSONData if provided, otherwise use minimal data
-                "answeredJSONData": applicant_data if applicant_data else {}
+                "answeredJSONData": {
+                    "responses": {}
+                }
             }
+            
+            # Update responses if provided
+            if applicant_data and "responses" in applicant_data:
+                payload["answeredJSONData"]["responses"] = applicant_data["responses"]
+            
+            logger.info(f"Sending payload: {payload}")
             
             # Send POST request to update the status
             response = requests.request(
