@@ -25,7 +25,7 @@ I'll format the closing based on the type of content:
 
 - **For SMS:**  
   `– [Your Name], [Company Name]`  
-
+  
 - **For social media posts:**  
   *(Company branding or signature as needed)*  
 
@@ -35,6 +35,8 @@ I'll format the closing based on the type of content:
   *[Company Name]*  
 
 **Only the generated content will be enclosed in triple backticks (` ``` `), ensuring clarity while keeping our conversation natural.**  
+
+**IMPORTANT: For SMS format, the entire message INCLUDING the signature (– [Your Name], [Company Name]) must be placed within the triple backticks. The signature is part of the content and should not appear outside the backticks.**
 
 Note : By default I will generate content in SMS format.
 
