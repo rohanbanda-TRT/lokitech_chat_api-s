@@ -20,9 +20,14 @@ company_admin_agent = CompanyAdminAgent(settings.OPENAI_API_KEY)
 performance_analyzer = PerformanceAnalyzerAgent(settings.OPENAI_API_KEY)
 
 # Initialize coaching feedback generator
-coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
+# Prioritize the combined JSON file
+coaching_data_path = os.path.join(os.getcwd(), "json_output", "combined_coaching_history.json")
 if not os.path.exists(coaching_data_path):
-    coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
+    coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
+    if not os.path.exists(coaching_data_path):
+        coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
+        
+logger.info(f"Loading coaching data from: {coaching_data_path}")
 coaching_feedback_generator = CoachingFeedbackGenerator(settings.OPENAI_API_KEY, coaching_data_path)
 
 class PerformanceRequest(BaseModel):
@@ -96,6 +101,10 @@ class CoachingFeedbackRequest(BaseModel):
         ...,
         min_length=2,
         description="Coaching query (e.g., 'Moises was cited for a speeding violation while operating a company vehicle.')"
+    )
+    session_id: Optional[str] = Field(
+        None,
+        description="Optional session identifier for maintaining conversation history"
     )
 
 
@@ -284,18 +293,22 @@ async def save_company_questions(request: CompanyQuestionsRequest):
          description="Generates structured coaching feedback with historical context")
 async def generate_coaching_feedback(request: CoachingFeedbackRequest):
     try:
-        # Validate input
-        if not request.query:
+        # Validate request
+        if not request.query or request.query.strip() == "":
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Coaching query is required"
             )
         
         # Generate coaching feedback
-        result = coaching_feedback_generator.generate_feedback(request.query)
+        result = coaching_feedback_generator.generate_feedback(
+            query=request.query,
+            session_id=request.session_id
+        )
         
         return {
             "query": request.query,
+            "session_id": request.session_id,
             "feedback": result
         }
     

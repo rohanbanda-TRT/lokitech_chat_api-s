@@ -6,6 +6,7 @@ import streamlit as st
 import requests
 import json
 import os
+import uuid
 from typing import Dict, Any
 
 # API URL
@@ -18,12 +19,21 @@ st.set_page_config(
     layout="wide"
 )
 
-def generate_coaching_feedback(query: str) -> Dict[str, Any]:
+# Initialize session state variables
+if 'session_id' not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if 'conversation_started' not in st.session_state:
+    st.session_state.conversation_started = False
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+def generate_coaching_feedback(query: str, session_id: str) -> Dict[str, Any]:
     """
     Generate coaching feedback by calling the API
     
     Args:
         query: Coaching query/reason
+        session_id: Session ID for maintaining conversation history
         
     Returns:
         API response as dictionary
@@ -31,7 +41,8 @@ def generate_coaching_feedback(query: str) -> Dict[str, Any]:
     try:
         # Prepare request data
         request_data = {
-            "query": query
+            "query": query,
+            "session_id": session_id
         }
         
         # Make API request
@@ -67,60 +78,110 @@ def main():
         "prior discussion points, and recommended corrective actions."
     )
     
+    st.sidebar.header("Session Information")
+    st.sidebar.text(f"Session ID: {st.session_state.session_id}")
+    
+    if st.sidebar.button("New Session"):
+        st.session_state.session_id = str(uuid.uuid4())
+        st.session_state.conversation_started = False
+        st.session_state.messages = []
+        st.sidebar.success(f"New session created: {st.session_state.session_id}")
+        st.rerun()
+    
     st.sidebar.header("Instructions")
     st.sidebar.markdown(
-        "1. Enter your coaching query\n"
-        "2. The system will automatically identify the coaching category\n"
-        "3. Click 'Generate Feedback' to get structured coaching feedback with historical context"
+        "1. Enter your coaching query or question\n"
+        "2. You can ask for employee-specific coaching feedback by mentioning the employee name\n"
+        "3. You can also ask to list all available employees or severity categories\n"
+        "4. The system will generate structured coaching feedback based on your query"
     )
     
-    # Main content
-    col1, col2 = st.columns([1, 1])
+    # Display chat history
+    st.subheader("Coaching Assistant")
     
-    with col1:
-        st.subheader("Enter Coaching Query")
+    # Initial greeting if conversation not started
+    if not st.session_state.conversation_started:
+        st.info("👋 Hello! I'm your coaching assistant. I can help you generate coaching feedback for employees based on their history. You can ask me about specific employees, severity categories, or enter a general coaching query.")
+    
+    # Display chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # Chat input
+    if prompt := st.chat_input("Enter your coaching query or question"):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # Coaching query
-        query = st.text_area(
-            "Coaching Query", 
-            placeholder="e.g., Moises was cited for a speeding violation while operating a company vehicle.",
-            height=150
-        )
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
         
-        # Example queries
-        st.markdown("#### Example Queries")
+        # Generate response
+        with st.chat_message("assistant"):
+            with st.spinner("Generating response..."):
+                # Call API
+                result = generate_coaching_feedback(prompt, st.session_state.session_id)
+                
+                if "error" not in result:
+                    feedback = result.get("feedback", "")
+                    st.markdown(feedback)
+                    
+                    # Add assistant message to chat history
+                    st.session_state.messages.append({"role": "assistant", "content": feedback})
+                    st.session_state.conversation_started = True
+                else:
+                    st.error(f"Error: {result['error']}")
+    
+    # Example queries
+    if not st.session_state.conversation_started:
+        st.subheader("Example Queries")
+        col1, col2 = st.columns(2)
+        
         examples = [
-            "John was cited for a hard braking violation while operating a company vehicle.",
-            "Maria was cited for not maintaining proper following distance during her route.",
-            "Carlos received feedback about his CDF score being below company standards.",
-            "Alex was observed using his phone while driving, which is a driver distraction violation."
+            "Please list all available employees",
+            "What severity categories are available?",
+            "Get coaching history for employee John Smith with severity Critical",
+            "John was cited for a hard braking violation while operating a company vehicle",
+            "Maria was cited for not maintaining proper following distance during her route",
+            "What kind of coaching feedback can you generate?"
         ]
         
-        for example in examples:
-            if st.button(f"Use Example: {example[:50]}...", key=example):
-                # Use this example
-                st.session_state.query = example
-                # Rerun to update the text area
-                st.rerun()
-        
-        # Generate button
-        if st.button("Generate Feedback", type="primary"):
-            if not query:
-                st.error("Please enter a coaching query")
-            else:
-                with st.spinner("Generating coaching feedback..."):
-                    # Call API
-                    result = generate_coaching_feedback(query=query)
+        with col1:
+            for i in range(0, len(examples), 2):
+                if st.button(f"{examples[i]}", key=f"example_{i}"):
+                    # Add user message to chat history
+                    st.session_state.messages.append({"role": "user", "content": examples[i]})
                     
-                    # Display results in the second column
+                    # Generate response
+                    result = generate_coaching_feedback(examples[i], st.session_state.session_id)
+                    
                     if "error" not in result:
-                        with col2:
-                            st.subheader("Coaching Feedback")
-                            st.markdown(result.get("feedback", "No feedback generated"))
+                        feedback = result.get("feedback", "")
+                        
+                        # Add assistant message to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": feedback})
+                        st.session_state.conversation_started = True
                     
-    with col2:
-        st.subheader("Coaching Feedback")
-        st.info("Enter your coaching query and click 'Generate Feedback' to see results here")
+                    st.rerun()
+        
+        with col2:
+            for i in range(1, len(examples), 2):
+                if st.button(f"{examples[i]}", key=f"example_{i}"):
+                    # Add user message to chat history
+                    st.session_state.messages.append({"role": "user", "content": examples[i]})
+                    
+                    # Generate response
+                    result = generate_coaching_feedback(examples[i], st.session_state.session_id)
+                    
+                    if "error" not in result:
+                        feedback = result.get("feedback", "")
+                        
+                        # Add assistant message to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": feedback})
+                        st.session_state.conversation_started = True
+                    
+                    st.rerun()
 
 if __name__ == "__main__":
     main()
