@@ -10,3 +10,4 @@ streamlit
 pymongo
 firebase-admin
 requests
+pandas

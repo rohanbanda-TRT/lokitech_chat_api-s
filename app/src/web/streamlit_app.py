@@ -53,7 +53,7 @@ def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant
         }
         
         response = requests.post(
-            f"http://127.0.0.1:8000/{endpoint}",
+            f"https://lokitech-demo-api.demotrt.com/{endpoint}",
             json=payload
         )
         if response.status_code == 200:
@@ -149,7 +149,7 @@ def user_page():
                     payload["applicant_id"] = applicant_id
                     
                 response = requests.post(
-                    "http://127.0.0.1:8000/driver-screening",
+                    "https://lokitech-demo-api.demotrt.com/driver-screening",
                     json=payload
                 )
                 
@@ -213,7 +213,7 @@ def admin_page():
     with st.expander("View Current Questions", expanded=False):
         if st.button("Refresh Questions"):
             try:
-                response = requests.get(f"http://127.0.0.1:8000/company-questions/{dsp_code}")
+                response = requests.get(f"https://lokitech-demo-api.demotrt.com/company-questions/{dsp_code}")
                 if response.status_code == 200:
                     questions = response.json().get("questions", [])
                     if questions:
@@ -246,7 +246,7 @@ def admin_page():
             # Make API call with admin message
             try:
                 response = requests.post(
-                    "http://127.0.0.1:8000/company-admin",
+                    "https://lokitech-demo-api.demotrt.com/company-admin",
                     json={
                         "message": prompt,
                         "session_id": st.session_state.admin_session_id,

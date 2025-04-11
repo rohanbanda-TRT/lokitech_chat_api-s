@@ -51,15 +51,9 @@ class CoachingFeedbackGenerator:
         # Create tools
         self.tools = [
             StructuredTool.from_function(
-                func=self._get_coaching_suggestions,
-                name="get_coaching_suggestions",
-                description="Get previous coaching suggestions for a specific category",
-                return_direct=False,
-            ),
-            StructuredTool.from_function(
                 func=self._list_severity_categories,
                 name="list_severity_categories",
-                description="List all severity categories available in the coaching history database",
+                description="List all severity categories available for a specific employee",
                 return_direct=True,
             ),
             StructuredTool.from_function(
@@ -146,44 +140,43 @@ class CoachingFeedbackGenerator:
             logger.error(f"Error getting employee list: {str(e)}")
             return f"Error getting employee list: {str(e)}"
     
-    def _list_severity_categories(self) -> str:
+    def _list_severity_categories(self, employee: str) -> str:
         """
-        List all severity categories available in the coaching history database.
+        List all severity categories available for a specific employee in the coaching history database.
         
+        Args:
+            employee: Employee name
+            
         Returns:
-            Formatted string with all severity categories
+            Formatted string with all severity categories for the specified employee
         """
         try:
             categories = set()
             
-            # Extract categories from all records
-            if isinstance(self.coaching_history, dict):
-                if "records" in self.coaching_history:
-                    # Flat structure with records key
-                    for record in self.coaching_history["records"]:
-                        if "Severity" in record and record["Severity"]:
-                            categories.add(record["Severity"])
-                else:
-                    # Organized by employee
-                    for employee, records in self.coaching_history.items():
-                        for record in records:
-                            if "Severity" in record and record["Severity"]:
-                                categories.add(record["Severity"])
-            
-            # Format the output
-            if categories:
-                categories_list = sorted(list(categories))
-                # Format each category on a new line with numbered list for better visibility
-                formatted_categories = "\n".join([f"{i+1}. **{category}**" for i, category in enumerate(categories_list)])
-                return f"""
-## Available Severity Categories:
+            # Check if data is organized by employee
+            if isinstance(self.coaching_history, dict) and employee in self.coaching_history:
+                # Extract categories from employee's records
+                employee_records = self.coaching_history[employee]
+                for record in employee_records:
+                    if "Severity" in record and record["Severity"]:
+                        categories.add(record["Severity"])
+                
+                # Format the output
+                if categories:
+                    categories_list = sorted(list(categories))
+                    # Format each category on a new line with numbered list for better visibility
+                    formatted_categories = "\n".join([f"{i+1}. **{category}**" for i, category in enumerate(categories_list)])
+                    return f"""
+## Available Severity Categories for {employee}:
 
 {formatted_categories}
 
 Please select a severity category from the list above for this coaching feedback.
 """
+                else:
+                    return f"No severity categories found for employee '{employee}' in the coaching history database."
             else:
-                return "No severity categories found in the coaching history database."
+                return f"Employee '{employee}' not found in the coaching history database."
         except Exception as e:
             logger.error(f"Error listing severity categories: {str(e)}")
             return f"Error listing severity categories: {str(e)}"
@@ -231,7 +224,7 @@ Please select a severity category from the list above for this coaching feedback
                     entry = f"Record {i}:\n"
                     entry += f"Date: {date}\n"
                     entry += f"Issue: {severity_value}\n"
-                    entry += f"Statement of Problem: {statement}\n"
+                    entry += f"Improvement Discussion: {statement}\n"
                     entry += f"Prior Discussion: {prior}\n"
                     entry += f"Corrective Action: {action}\n"
                     
@@ -243,119 +236,6 @@ Please select a severity category from the list above for this coaching feedback
         except Exception as e:
             logger.error(f"Error retrieving employee coaching: {str(e)}")
             return f"Error retrieving employee coaching: {str(e)}"
-    
-    def _get_coaching_suggestions(self, category: str) -> str:
-        """
-        Get previous coaching suggestions for a specific category.
-        
-        Args:
-            category: The coaching category (e.g., "Speeding Violations", "Hard Braking")
-            
-        Returns:
-            Formatted string with previous coaching suggestions
-        """
-        try:
-            logger.info(f"Retrieving coaching suggestions for category: {category}")
-            
-            # Find relevant records
-            relevant_records = []
-            category = category.lower().strip()
-            
-            # Extract records based on the data structure
-            if isinstance(self.coaching_history, dict):
-                if "records" in self.coaching_history:
-                    # Flat structure with records key
-                    for record in self.coaching_history["records"]:
-                        record_category = str(record.get('Category', '')).lower()
-                        record_severity = str(record.get('Severity', '')).lower()
-                        
-                        if category in record_category or category in record_severity:
-                            relevant_records.append(record)
-                else:
-                    # Organized by employee
-                    for employee, records in self.coaching_history.items():
-                        for record in records:
-                            record_category = str(record.get('Category', '')).lower()
-                            record_severity = str(record.get('Severity', '')).lower()
-                            
-                            if category in record_category or category in record_severity:
-                                relevant_records.append(record)
-            
-            logger.info(f"Found {len(relevant_records)} relevant coaching records for category: {category}")
-            
-            # Format the results
-            if not relevant_records:
-                return f"No coaching history found for category '{category}'."
-            
-            formatted_records = []
-            
-            for i, record in enumerate(relevant_records, 1):
-                date = record.get('Date', 'Unknown Date')
-                severity = record.get('Severity', 'Unknown Issue')
-                statement = record.get('Statement_of_Problem', 'No statement provided')
-                prior = record.get('Prior_Discussion', 'No prior discussion')
-                action = record.get('Corrective_Action', 'No corrective action specified')
-                
-                entry = f"Record {i}:\n"
-                entry += f"Date: {date}\n"
-                entry += f"Issue: {severity}\n"
-                entry += f"Statement of Problem: {statement}\n"
-                entry += f"Prior Discussion: {prior}\n"
-                entry += f"Corrective Action: {action}\n"
-                
-                formatted_records.append(entry)
-            
-            return "\n\n".join(formatted_records)
-            
-        except Exception as e:
-            logger.error(f"Error retrieving coaching suggestions: {str(e)}")
-            return f"Error retrieving coaching suggestions: {str(e)}"
-    
-    def _extract_category(self, query: str) -> str:
-        """
-        Extract the coaching category from the query.
-        
-        Args:
-            query: The coaching query
-            
-        Returns:
-            Extracted category
-        """
-        try:
-            # Use a simple LLM call to extract the category
-            category_prompt = ChatPromptTemplate.from_template(
-                """Extract the coaching category from the following query. 
-                Return only the category name, nothing else.
-                
-                Common categories:
-                - Speeding Violations
-                - Hard Braking
-                - Following Distance
-                - Traffic Light Violation
-                - CDF Score
-                - Sign Violation
-                - Driver Distraction
-                - Total Breaches
-                - Working Hours Compliance
-                - EOC (Engine Off Compliance)
-                - NCNS (No Call No Show)
-                - SWC-CC (Call Compliance)
-                - SWC-AD (Attended Delivery)
-                
-                Query: {query}
-                
-                Category:"""
-            )
-            
-            category_chain = category_prompt | self.llm | StrOutputParser()
-            category = category_chain.invoke({"query": query}).lower().strip()
-            
-            logger.info(f"Extracted category from query: {category}")
-            return category
-            
-        except Exception as e:
-            logger.error(f"Error extracting category: {str(e)}")
-            return "unknown"
     
     def _is_coaching_request(self, query: str) -> bool:
         """
