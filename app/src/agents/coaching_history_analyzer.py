@@ -6,18 +6,24 @@ import os
 import json
 import logging
 import pandas as pd
-from typing import Dict, List, Optional, Any, Callable, Set
+import uuid
+import time
+from typing import Dict, List, Optional, Any, Callable, Set, TypedDict
 from datetime import datetime
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import Tool, StructuredTool
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from pydantic import BaseModel, Field
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.runnables import RunnablePassthrough
 from dotenv import load_dotenv
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph.message import add_messages
+from typing_extensions import Annotated
 from ..prompts.coaching_history import COACHING_HISTORY_PROMPT_TEMPLATE_STR
-from ..utils.session_manager import get_session_manager
 
 # Configure logging
 logging.basicConfig(
@@ -26,24 +32,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Define the state schema for the coaching feedback generator
+class CoachingFeedbackState(TypedDict):
+    """State schema for the coaching feedback generator graph."""
+
+    messages: Annotated[list[BaseMessage], add_messages]
+    employee_name: Optional[str]
+    severity_category: Optional[str]
+
 class CoachingFeedbackGenerator:
     """
-    Agent for generating structured coaching feedback with historical context.
+    Agent for generating structured coaching feedback with historical context using LangGraph.
     """
     
-    def __init__(self, api_key: str, coaching_data_path: str):
+    def __init__(self, api_key: str = None, coaching_data_path: str = None):
         """
-        Initialize the Coaching Feedback Generator.
+        Initialize the Coaching Feedback Generator with LangGraph.
         
         Args:
-            api_key: OpenAI API key
+            api_key: OpenAI API key. If not provided, will try to get from environment.
             coaching_data_path: Path to the coaching history data file (Excel or JSON)
         """
-        self.api_key = api_key
+        # Get API key from environment if not provided
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError("OpenAI API key is required. Please provide it or set OPENAI_API_KEY environment variable.")
+            
+        # Set default coaching data path if not provided
+        if not coaching_data_path:
+            coaching_data_path = os.path.join(os.getcwd(), "json_output", "combined_coaching_history.json")
+            if not os.path.exists(coaching_data_path):
+                coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
+                if not os.path.exists(coaching_data_path):
+                    coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
+        
         self.coaching_data_path = coaching_data_path
         self.coaching_history = self._load_coaching_data()
-        self.llm = ChatOpenAI(temperature=0.2, api_key=api_key, verbose=True)
-        self.session_manager = get_session_manager()
+        self.llm = ChatOpenAI(temperature=0.2, api_key=self.api_key, model="gpt-4o-mini")
+        self.memory = MemorySaver()
         
         # Get the list of employees
         self.employee_list = self._get_employee_list()
@@ -72,7 +98,15 @@ class CoachingFeedbackGenerator:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
         
-        logger.info("Coaching Feedback Generator initialized successfully")
+        # Create the agent using LangChain's create_openai_tools_agent
+        self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
+        
+        # Create the agent executor
+        self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools)
+        
+        # Build the graph
+        self.graph = self._create_graph()
+        logger.info("Coaching Feedback Generator initialized with LangGraph")
     
     def _load_coaching_data(self) -> Dict[str, Any]:
         """
@@ -237,42 +271,60 @@ Please select a severity category from the list above for this coaching feedback
             logger.error(f"Error retrieving employee coaching: {str(e)}")
             return f"Error retrieving employee coaching: {str(e)}"
     
-    def _is_coaching_request(self, query: str) -> bool:
+    def _create_graph(self) -> StateGraph:
         """
-        Determine if the query is a coaching feedback request or normal conversation.
+        Create the LangGraph for the coaching feedback generator.
         
-        Args:
-            query: The user's query
-            
         Returns:
-            True if the query is a coaching request, False if it's normal conversation
+            Compiled StateGraph
         """
-        try:
-            # Check if this is a first-time user (empty or greeting query)
-            if not query or query.strip() == "" or any(greeting in query.lower() for greeting in ["hello", "hi", "hey", "greetings"]):
-                return True  # Treat as coaching request to start the guided flow
+        # Create the graph builder with the state schema
+        graph_builder = StateGraph(CoachingFeedbackState)
+        
+        # Define the agent node
+        def agent_node(state: CoachingFeedbackState) -> Dict[str, Any]:
+            """Process messages using the agent."""
+            # Get the last message from the user
+            last_message = state["messages"][-1]
+            
+            # Extract conversation history
+            history = []
+            if len(state["messages"]) > 1:
+                for msg in state["messages"][:-1]:
+                    if isinstance(msg, HumanMessage):
+                        history.append(("human", msg.content))
+                    elif isinstance(msg, AIMessage):
+                        history.append(("ai", msg.content))
+            
+            try:
+                # Call the agent with history
+                result = self.agent_executor.invoke({
+                    "input": last_message.content,
+                    "chat_history": history
+                })
                 
-            # Keywords that indicate a coaching request
-            coaching_keywords = [
-                "coach", "feedback", "employee", "driver", "violation", "warning",
-                "performance", "issue", "problem", "citation", "infraction",
-                "speeding", "braking", "severity", "mentor", "netradyne"
-            ]
-            
-            # Check if any coaching keywords are in the query
-            for keyword in coaching_keywords:
-                if keyword in query.lower():
-                    return True
-                    
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error determining if query is a coaching request: {str(e)}")
-            return True  # Default to treating as coaching request
-            
+                # Return the response as an AI message
+                return {"messages": [AIMessage(content=result["output"])]}
+            except Exception as e:
+                # Log the error
+                logger.error(f"Error in agent_node: {str(e)}")
+                
+                # Return a generic error message
+                return {"messages": [AIMessage(content="I'm sorry, I encountered an error while processing your request. Please try again with more specific instructions.")]}
+        
+        # Add the node to the graph
+        graph_builder.add_node("agent", agent_node)
+        
+        # Add edges
+        graph_builder.add_edge(START, "agent")
+        graph_builder.add_edge("agent", END)
+        
+        # Compile the graph with the memory saver
+        return graph_builder.compile(checkpointer=self.memory)
+    
     def generate_feedback(self, query: str, session_id: str = None) -> str:
         """
-        Generate coaching feedback based on the query.
+        Generate coaching feedback based on the query using LangGraph.
         
         Args:
             query: The coaching query/reason (e.g., "Moises was cited for a speeding violation")
@@ -286,40 +338,39 @@ Please select a severity category from the list above for this coaching feedback
             
             # Generate a unique session ID if not provided
             if not session_id:
-                import time
-                timestamp = int(time.time())
-                session_id = f"COACHING-{timestamp}"
+                session_id = str(uuid.uuid4())
                 logger.info(f"Generated new session ID: {session_id}")
+            else:
+                logger.info(f"Using existing session ID: {session_id}")
             
-            # Check if this is a new conversation
-            is_new_conversation = not self.session_manager.session_exists(session_id)
+            # Create a human message
+            human_message = HumanMessage(content=query)
             
-            # Get or create the agent executor using the session manager
-            executor = self.session_manager.get_or_create_session(
-                session_id=session_id,
-                llm=self.llm,
-                tools=self.tools,
-                prompt=self.prompt,
-                verbose=True
+            # Set up the config for this session
+            config = {"configurable": {"thread_id": session_id}}
+            
+            # Prepare the initial state
+            initial_state = {
+                "messages": [human_message],
+                "employee_name": None,
+                "severity_category": None
+            }
+            
+            # Invoke the graph with the message
+            result = self.graph.invoke(
+                initial_state,
+                config=config
             )
             
-            # First, determine if this is a coaching request or normal conversation
-            is_coaching_request = self._is_coaching_request(query)
+            # Extract and return the response content
+            if result and "messages" in result and len(result["messages"]) > 0:
+                # Get the last message (the response)
+                last_message = result["messages"][-1]
+                if isinstance(last_message, AIMessage):
+                    return last_message.content
             
-            # Prepare the input for the agent
-            if is_coaching_request:
-                # For a new conversation, we'll let the agent handle the introduction
-                # and guided flow based on the prompt template
-                input_text = query if query.strip() else "Hello"
-            else:
-                # For normal conversation, just pass the query directly
-                input_text = query
-            
-            # Run the agent executor
-            result = executor.invoke({"input": input_text})
-            
-            logger.info("Successfully generated feedback")
-            return result["output"]
+            logger.info("Message processed successfully")
+            return "Sorry, I couldn't generate a response."
             
         except Exception as e:
             error_msg = f"Error generating feedback: {str(e)}"
@@ -349,16 +400,19 @@ def main():
     # Initialize the agent
     generator = CoachingFeedbackGenerator(api_key, coaching_data_path)
     
-    # Sample query
-    query = "Moises was cited for a speeding violation while operating a company vehicle."
+    print("Coaching Feedback Generator started! Type 'q' or 'quit' to exit.")
+    session_id = str(uuid.uuid4())
+    print(f"Session ID: {session_id}")
     
-    # Generate coaching feedback
-    result = generator.generate_feedback(query)
-    
-    # Print results
-    print("\nCoaching Feedback:")
-    print("---------------------------")
-    print(result)
+    while True:
+        user_input = input("\nEnter your coaching query: ").strip()
+        
+        if user_input.lower() in ["q", "quit"]:
+            print("\nCoaching session ended.")
+            break
+        
+        response = generator.generate_feedback(user_input, session_id)
+        print("\nResponse:", response)
 
 
 if __name__ == "__main__":
