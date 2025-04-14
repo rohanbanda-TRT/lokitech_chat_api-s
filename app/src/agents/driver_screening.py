@@ -1,18 +1,36 @@
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain.tools import Tool
-from langchain_core.tools import StructuredTool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI
+"""
+Driver Screening Agent implemented using LangGraph with ReAct pattern.
+This module provides a LangGraph-based implementation of the driver screening agent.
+"""
+
 import os
+import logging
+import uuid
+import json
+import time
+import re
+from typing import Annotated, TypedDict, Dict, Any, Optional
+
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.tools import BaseTool, Tool, StructuredTool
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+
 from dotenv import load_dotenv
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..tools.driver_screening_tools import DriverScreeningTools
-import json
+from ..tools.dsp_api_client import DSPApiClient
 from ..prompts.driver_screening import (
     DRIVER_SCREENING_PROMPT_TEMPLATE,
     DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE,
 )
-from ..utils.session_manager import get_session_manager
 
 # Comment out Google Calendar related imports and initializations
 # credentials = get_gmail_credentials(
@@ -20,7 +38,7 @@ from ..utils.session_manager import get_session_manager
 #     scopes=["https://www.googleapis.com/auth/calendar"],
 #     client_secrets_file="credentials.json",
 # )
-# 
+#
 # calendar_service = build_resource_service(
 #     credentials=credentials, service_name="calendar", service_version="v3"
 # )
@@ -31,10 +49,9 @@ calendar_service = None
 createeventtool = None
 listeventtool = None
 
-import logging
 # Comment out Google Calendar tool imports
 # from ..tools.googleCalender import CreateGoogleCalendarEvent, ListGoogleCalendarEvents
-# 
+#
 # createeventtool = CreateGoogleCalendarEvent.from_api_resource(calendar_service)
 # listeventtool = ListGoogleCalendarEvents.from_api_resource(calendar_service)
 
@@ -46,14 +63,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class DriverScreeningState(TypedDict):
+    """State schema for the driver screening graph."""
+
+    messages: Annotated[list[BaseMessage], add_messages]
+    session_id: Optional[str]
+    dsp_code: Optional[str]
+    station_code: Optional[str]
+    applicant_id: Optional[int]
+    applicant_details: Optional[Dict[str, Any]]
+    is_new_session: Optional[bool]
+
+
 class DriverScreeningAgent:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.llm = ChatOpenAI(temperature=0.7, api_key=api_key, model="gpt-4o-mini")
-        # Use Firebase for company questions via the factory
+    """Driver Screening Agent implemented using LangGraph with ReAct pattern."""
+
+    def __init__(self, api_key: str = None):
+        """
+        Initialize the driver screening agent with LangGraph.
+
+        Args:
+            api_key: OpenAI API key. If not provided, will try to get from environment.
+        """
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "OpenAI API key is required. Please provide it or set OPENAI_API_KEY environment variable."
+            )
+
+        self.llm = ChatOpenAI(
+            temperature=0.7, api_key=self.api_key, model="gpt-4o-mini"
+        )
+        self.memory = MemorySaver()
+
+        # Initialize managers and tools
         self.questions_manager = get_company_questions_manager()
-        self.session_manager = get_session_manager()
         self.screening_tools = DriverScreeningTools()
+
+        # Set up tools using the standard Tool class
         self.tools = [
             StructuredTool.from_function(
                 func=self.screening_tools._update_applicant_status,
@@ -61,6 +108,10 @@ class DriverScreeningAgent:
                 description="Update the applicant status based on screening results (PASSED or FAILED)",
             ),
         ]
+
+        # Build the graph
+        self.graph = self._create_graph()
+        logger.info("DriverScreeningAgent initialized with ReAct agent")
 
     def _get_company_specific_questions_text(self, dsp_code: str) -> str:
         """
@@ -119,7 +170,7 @@ class DriverScreeningAgent:
             first_name = applicant_details.get("firstName", "").strip()
             last_name = applicant_details.get("lastName", "").strip()
             applicant_name = f"{first_name} {last_name}".strip()
-            
+
             logger.info(
                 f"Using personalized prompt template for applicant: {applicant_name}"
             )
@@ -130,7 +181,7 @@ class DriverScreeningAgent:
             )
             # Replace the applicant name placeholder with the actual name
             prompt_text = prompt_text.replace("{{applicant_name}}", applicant_name)
-            
+
             # Add applicant details section to the prompt
             applicant_details_text = f"""
 **Applicant Details (For Internal Reference Only - DO NOT share with the applicant):**
@@ -147,8 +198,7 @@ Remember to use the above information for internal processing only. Never share 
 """
             # Insert the applicant details section after the initial message section
             prompt_text = prompt_text.replace(
-                "Screening Process:", 
-                f"{applicant_details_text}\nScreening Process:"
+                "Screening Process:", f"{applicant_details_text}\nScreening Process:"
             )
         else:
             # Use the standard template that asks for the applicant's name
@@ -163,142 +213,171 @@ Remember to use the above information for internal processing only. Never share 
         return ChatPromptTemplate.from_messages(
             [
                 ("system", prompt_text),
-                MessagesPlaceholder("chat_history"),
+                MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{input}"),
                 MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
 
-    def _get_applicant_details(self, dsp_code: str, station_code: str, applicant_id: int):
+    def _update_applicant_status(
+        self, dsp_code: str, applicant_name: str, applicant_details: dict
+    ) -> None:
         """
-        Get applicant details from the DSP API
+        Update the applicant status to INPROGRESS when screening starts
 
         Args:
             dsp_code: The DSP code
-            station_code: The station code
-            applicant_id: The applicant ID
-
-        Returns:
-            Applicant details dict or None if not found
+            applicant_name: The applicant's full name
+            applicant_details: The applicant details dictionary
         """
         try:
-            # Call the API client through the tool
-            from ..tools.dsp_api_client import DSPApiClient
-            api_client = DSPApiClient()
-            
-            # Use provided station_code and applicant_id if available, otherwise use defaults
-            station_code_to_use = station_code if station_code else "DJE1"
-            applicant_id_to_use = applicant_id if applicant_id is not None else 5
-            
-            applicant_details_obj = api_client.get_applicant_details(
-                dsp_code=dsp_code,
-                station_code=station_code_to_use,
-                applicant_id=applicant_id_to_use
-            )
-            
-            if applicant_details_obj:
-                return applicant_details_obj.model_dump()
-            else:
-                logger.warning(
-                    f"Could not retrieve applicant details for DSP code: {dsp_code}, "
-                    f"station_code: {station_code_to_use}, applicant_id: {applicant_id_to_use}"
+            # Only update if the current status is SENT
+            current_status = applicant_details.get("applicantStatus", "").strip()
+            if current_status == "SENT":
+                logger.info(
+                    f"Updating applicant status for {applicant_name} from SENT to INPROGRESS"
                 )
-                return None
+
+                # Get the required parameters from applicant_details
+                applicant_id = applicant_details.get("applicantID")
+
+                # Create the JSON input string that the tool expects
+                input_data = {
+                    "dsp_code": dsp_code,
+                    "applicant_id": applicant_id,
+                    "current_status": current_status,
+                    "new_status": "INPROGRESS",
+                }
+
+                # Convert to JSON string
+                input_str = json.dumps(input_data)
+
+                # Call the API to update the status
+                result = self.screening_tools._update_applicant_status(input_str)
+
+                # Log the result
+                logger.info(f"Status update result: {result}")
+            else:
+                logger.info(
+                    f"Not updating applicant status for {applicant_name} as current status is {current_status}"
+                )
         except Exception as e:
-            logger.error(f"Error getting applicant details: {e}")
-            return None
+            logger.error(f"Error updating applicant status: {e}")
 
-    def _update_applicant_status(
-        self, dsp_code: str, applicant_name: str, applicant_details: dict, new_status: str = "INPROGRESS", 
-        responses: dict = None
-    ):
+    def _create_graph(self) -> StateGraph:
         """
-        Update the applicant status
-        
-        Args:
-            dsp_code: The DSP code
-            applicant_name: The applicant name
-            applicant_details: The applicant details
-            new_status: The new status to set (default: INPROGRESS)
-            responses: Dictionary of question-answer pairs from the screening
-            
+        Create the LangGraph for the driver screening agent.
+
         Returns:
-            True if the status was updated successfully, False otherwise
+            Compiled StateGraph
         """
-        current_status = applicant_details.get("applicantStatus", "SENT")
-        applicant_id = applicant_details.get("applicantID")
-        
-        # Only update to INPROGRESS if current status is SENT
-        if new_status == "INPROGRESS" and current_status != "SENT":
-            logger.info(
-                f"Not updating status to INPROGRESS for {applicant_name} (ID: {applicant_id}) because current status is {current_status}, not SENT"
-            )
-            return True  # Return True to allow the screening to continue
-        
-        # Create an instance of the DSP API client
-        from ..tools.dsp_api_client import DSPApiClient
-        
-        api_client = DSPApiClient()
-        
-        # Prepare the applicant data with responses if available
-        applicant_data = {}
-        
-        # Add the responses if provided
-        if responses:
-            # Create the answeredJSONData structure with only responses
-            applicant_data = {
-                "responses": responses
-            }
-        
-        # Update the applicant status
-        status_updated = api_client.update_applicant_status(
-            dsp_code=dsp_code,
-            applicant_id=applicant_id,  # Pass the applicant ID from the details
-            current_status=current_status,
-            new_status=new_status,
-            # Pass the responses data
-            applicant_data=applicant_data,
-        )
-        
-        if status_updated:
-            logger.info(
-                f"Successfully updated applicant status to {new_status} for {applicant_name} (ID: {applicant_id})"
-            )
-        else:
-            logger.warning(
-                f"Failed to update applicant status for {applicant_name} (ID: {applicant_id})"
-            )
+        # Create the graph builder with our state schema
+        graph_builder = StateGraph(DriverScreeningState)
 
-        return status_updated
-        
+        # Define the agent node
+        def agent_node(state: DriverScreeningState) -> Dict[str, Any]:
+            """Process messages using the agent."""
+            # Extract the last message from the user
+            last_message = state["messages"][-1]
+
+            # Extract session information from state
+            session_id = state.get("session_id")
+            dsp_code = state.get("dsp_code")
+            station_code = state.get("station_code")
+            applicant_id = state.get("applicant_id")
+            applicant_details = state.get("applicant_details")
+            is_new_session = state.get("is_new_session", False)
+
+            # Check for special triggers
+            user_input = last_message.content
+
+            # For the first message in a new session with applicant details,
+            # we want to ensure the agent greets the applicant by name
+            if is_new_session and applicant_details and not user_input.strip():
+                # For the first message, we'll use a special trigger to ensure the agent
+                # starts with the personalized greeting
+                if not user_input.strip() or user_input.lower().strip() in [
+                    "hi",
+                    "hello",
+                    "hey",
+                ]:
+                    # Replace with a special trigger that the agent will recognize
+                    user_input = "START_GREETING"
+                    logger.info("Using special greeting trigger for first message")
+
+            # Create the prompt with company-specific questions and applicant details if available
+            prompt = self._create_prompt(dsp_code, applicant_details)
+
+            # Create the agent using the prompt
+            agent = create_openai_tools_agent(self.llm, self.tools, prompt)
+
+            # Create the agent executor
+            agent_executor = AgentExecutor(agent=agent, tools=self.tools)
+
+            # Extract conversation history
+            history = []
+            if len(state["messages"]) > 1:
+                # Skip the last message as it's the current user input
+                for msg in state["messages"][:-1]:
+                    if isinstance(msg, HumanMessage):
+                        history.append(("human", msg.content))
+                    elif isinstance(msg, AIMessage):
+                        history.append(("ai", msg.content))
+
+            try:
+                # Call the agent with history
+                result = agent_executor.invoke(
+                    {"input": user_input, "chat_history": history}
+                )
+
+                # Return the response as an AI message
+                return {"messages": [AIMessage(content=result["output"])]}
+            except Exception as e:
+                # Log the error
+                logger.error(f"Error in agent_node: {str(e)}")
+
+                # Return a generic error message
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="I'm sorry, I encountered an error while processing your request. Please try again with more specific instructions."
+                        )
+                    ]
+                }
+
+        # Add the node to the graph
+        graph_builder.add_node("agent", agent_node)
+
+        # Add edges
+        graph_builder.add_edge(START, "agent")
+        graph_builder.add_edge("agent", END)
+
+        # Compile the graph with the memory saver
+        return graph_builder.compile(checkpointer=self.memory)
+
     def process_message(
-        self, user_input: str, session_id: str, dsp_code: str = None, 
-        station_code: str = None, applicant_id: int = None
+        self,
+        user_input: str,
+        session_id: str = None,
+        dsp_code: str = None,
+        station_code: str = None,
+        applicant_id: int = None,
     ) -> str:
         """
-        Process the screening conversation using session-specific memory.
+        Process a message using the driver screening agent.
 
         Args:
-            user_input: The message from the driver candidate
-            session_id: Unique session identifier
-            dsp_code: Optional DSP code to get company-specific questions
+            user_input: The user message to process
+            session_id: Optional session ID for conversation history
+            dsp_code: Optional DSP code for company-specific questions
             station_code: Optional station code for the DSP location
             applicant_id: Optional applicant ID for the driver being screened
 
         Returns:
-            Response from the agent
+            The generated response
         """
-        logger.info(
-            f"Processing message for session_id: {session_id}, dsp_code: {dsp_code}, "
-            f"station_code: {station_code}, applicant_id: {applicant_id}"
-        )
-        logger.info(f"Received user input: '{user_input}'")
-
-        # Validate session_id
-        if not session_id or session_id.strip() == "":
-            # Generate a unique session ID if none provided
-            import time
-
+        # Create a unique session ID if not provided
+        if not session_id:
             timestamp = int(time.time())
             session_id = f"SESSION-{timestamp}"
             logger.info(f"Generated new session_id: {session_id}")
@@ -307,8 +386,14 @@ Remember to use the above information for internal processing only. Never share 
         # we get the right prompt with company-specific questions
         unique_session_id = f"{session_id}_{dsp_code}" if dsp_code else session_id
 
-        # Check if this is a new session
-        is_new_session = not self.session_manager.session_exists(unique_session_id)
+        # Check if this is a new session by trying to get the checkpoint
+        try:
+            # Try to get the checkpoint for this session ID
+            checkpoint = self.memory.get(unique_session_id)
+            is_new_session = checkpoint is None
+        except:
+            # If there's an error, assume it's a new session
+            is_new_session = True
 
         # Get applicant details if dsp_code is provided and this is the first message
         applicant_details = None
@@ -318,48 +403,54 @@ Remember to use the above information for internal processing only. Never share 
                 f"New session detected. Fetching applicant details for DSP code: {dsp_code}, "
                 f"station_code: {station_code}, applicant_id: {applicant_id}"
             )
-            
+
             # Use the DSP API client directly to pass the new parameters
-            from ..tools.dsp_api_client import DSPApiClient
             api_client = DSPApiClient()
-            
+
             # Use provided station_code and applicant_id if available, otherwise use defaults
             station_code_to_use = station_code if station_code else "DJE1"
-            applicant_id_to_use = applicant_id if applicant_id is not None else 5
-            
+            applicant_id_to_use = applicant_id if applicant_id is not None else 57
+
             applicant_details_obj = api_client.get_applicant_details(
                 dsp_code=dsp_code,
                 station_code=station_code_to_use,
-                applicant_id=applicant_id_to_use
+                applicant_id=applicant_id_to_use,
             )
-            
+
             if applicant_details_obj:
                 applicant_details = applicant_details_obj.model_dump()
-                
+
                 # Check if required fields (name, mobile, status) are present
                 first_name = applicant_details.get("firstName", "").strip()
                 last_name = applicant_details.get("lastName", "").strip()
                 mobile_number = applicant_details.get("mobileNumber", "").strip()
                 applicant_status = applicant_details.get("applicantStatus", "").strip()
-                
+
                 # If any of the required fields are missing, stop the screening
-                if not first_name or not last_name or not mobile_number or not applicant_status:
+                if (
+                    not first_name
+                    or not last_name
+                    or not mobile_number
+                    or not applicant_status
+                ):
                     logger.warning(
                         f"Missing required applicant details. Name: '{first_name} {last_name}', "
                         f"Mobile: '{mobile_number}', Status: '{applicant_status}'"
                     )
                     return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
-                
+
                 # Check if the applicant status is not SENT or INPROGRESS, which means screening is already done
                 if applicant_status != "SENT" and applicant_status != "INPROGRESS":
                     logger.warning(
                         f"Applicant with ID {applicant_id_to_use} has already been screened. Current status: {applicant_status}"
                     )
                     return "Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact our support team."
-                
+
                 # Format the full name from first and last name
                 applicant_name = f"{first_name} {last_name}".strip()
-                logger.info(f"Found applicant name: {applicant_name}, mobile: {mobile_number}, status: {applicant_status}")
+                logger.info(
+                    f"Found applicant name: {applicant_name}, mobile: {mobile_number}, status: {applicant_status}"
+                )
 
                 # Update the applicant status to INPROGRESS
                 self._update_applicant_status(
@@ -370,52 +461,60 @@ Remember to use the above information for internal processing only. Never share 
                     f"Could not retrieve applicant details for DSP code: {dsp_code}, "
                     f"station_code: {station_code_to_use}, applicant_id: {applicant_id_to_use}"
                 )
-                
+
                 # Return a polite message to end the conversation if applicant details are not found
                 return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
 
-        # Create the prompt with company-specific questions and applicant details if available
-        prompt = self._create_prompt(dsp_code, applicant_details)
+        # Create a human message
+        human_message = HumanMessage(content=user_input)
 
-        # Get or create session executor using the session manager
-        executor = self.session_manager.get_or_create_session(
-            session_id=unique_session_id, llm=self.llm, tools=self.tools, prompt=prompt
-        )
+        # Set up the config for this session
+        config = {"configurable": {"thread_id": unique_session_id}}
 
-        # For the first message in a new session with applicant details,
-        # we want to ensure the agent greets the applicant by name
-        if is_new_session and applicant_details:
-            # For the first message, we'll use a special trigger to ensure the agent
-            # starts with the personalized greeting
-            if not user_input.strip() or user_input.lower().strip() in [
-                "hi",
-                "hello",
-                "hey",
-            ]:
-                # Replace with a special trigger that the agent will recognize
-                user_input = "START_GREETING"
-                logger.info("Using special greeting trigger for first message")
-
-        # Add session_id, dsp_code, and applicant_details to the input context
-        input_context = {
-            "input": user_input,
+        # Prepare the initial state
+        initial_state = {
+            "messages": [human_message],
             "session_id": session_id,
-            "dsp_code": dsp_code if dsp_code else "unknown",
-            "station_code": station_code if station_code else "unknown",
-            "applicant_id": applicant_id if applicant_id is not None else "unknown",
+            "is_new_session": is_new_session,
         }
 
-        # Add applicant details to the context if available
-        if applicant_details:
-            input_context["applicant_details"] = applicant_details
+        if dsp_code:
+            initial_state["dsp_code"] = dsp_code
+            logger.info(f"Using dsp_code: {dsp_code}")
 
-        response = executor.invoke(input_context)
+        if station_code:
+            initial_state["station_code"] = station_code
+            logger.info(f"Using station_code: {station_code}")
+
+        if applicant_id is not None:
+            initial_state["applicant_id"] = applicant_id
+            logger.info(f"Using applicant_id: {applicant_id}")
+
+        if applicant_details:
+            initial_state["applicant_details"] = applicant_details
+            logger.info(
+                f"Using applicant details for: {applicant_details.get('firstName', '')} {applicant_details.get('lastName', '')}"
+            )
+
+        # Invoke the graph with the message
+        result = self.graph.invoke(
+            initial_state,
+            config=config,
+        )
+
+        # Extract and return the response content
+        if result and "messages" in result and len(result["messages"]) > 0:
+            # Get the last message (the response)
+            last_message = result["messages"][-1]
+            if isinstance(last_message, AIMessage):
+                return last_message.content
+
         logger.info("Message processed successfully")
-        
-        return response["output"]
+        return "Sorry, I couldn't generate a response."
 
 
 def main():
+    """Run a simple CLI demo of the driver screening agent."""
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -429,8 +528,6 @@ def main():
     dsp_code = input("Enter DSP code (or leave blank for default questions): ").strip()
 
     # Generate a unique session ID
-    import time
-
     timestamp = int(time.time())
     session_id = f"SESSION-{timestamp}"
 
