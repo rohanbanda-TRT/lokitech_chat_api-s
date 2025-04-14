@@ -11,5 +11,5 @@ __all__ = [
     "DriverScreeningAgent",
     "CompanyAdminAgent",
     "ContentGeneratorAgent",
-    "PerformanceAnalyzerAgent"
+    "PerformanceAnalyzerAgent",
 ]

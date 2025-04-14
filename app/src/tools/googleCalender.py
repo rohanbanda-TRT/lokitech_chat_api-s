@@ -227,7 +227,7 @@ class CreateEventSchema(BaseModel):
     guests: Optional[List[str]] = None
     add_google_meet: Optional[bool] = Field(
         default=True,
-        description="Whether to add a Google Meet video conference to the event."
+        description="Whether to add a Google Meet video conference to the event.",
     )
 
 
@@ -270,13 +270,13 @@ class CreateGoogleCalendarEvent(GoogleCalendarBaseTool):
 
         if guests:
             event["attendees"] = [{"email": email} for email in guests]
-        
+
         # Add Google Meet video conference if requested
         if add_google_meet:
             event["conferenceData"] = {
                 "createRequest": {
                     "requestId": f"meet-{uuid.uuid4().hex}",
-                    "conferenceSolutionKey": {"type": "hangoutsMeet"}
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
                 }
             }
 
@@ -284,10 +284,10 @@ class CreateGoogleCalendarEvent(GoogleCalendarBaseTool):
         event = (
             self.api_resource.events()
             .insert(
-                calendarId="primary", 
+                calendarId="primary",
                 body=event,
                 conferenceDataVersion=1 if add_google_meet else 0,
-                sendUpdates="all" if guests else "none"
+                sendUpdates="all" if guests else "none",
             )
             .execute()
         )
@@ -302,10 +302,14 @@ class CreateGoogleCalendarEvent(GoogleCalendarBaseTool):
             "description": event.get("description"),
             "event_link": event.get("htmlLink"),
         }
-        
+
         # Add meet link if available
         if add_google_meet and "conferenceData" in event:
-            response["meet_link"] = event.get("conferenceData", {}).get("entryPoints", [{}])[0].get("uri", "")
+            response["meet_link"] = (
+                event.get("conferenceData", {})
+                .get("entryPoints", [{}])[0]
+                .get("uri", "")
+            )
 
         return response
 

@@ -3,10 +3,12 @@ import sys
 import uuid
 import requests
 import streamlit as st
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 sys.path.insert(0, project_root)
 
 from app.src.core.config import get_settings
+
 
 def initialize_session_state():
     """Initialize session state variables"""
@@ -29,17 +31,20 @@ def initialize_session_state():
     if "applicant_id" not in st.session_state:
         st.session_state.applicant_id = 0
 
+
 def get_chat_history(page_key):
     """Get chat history for a specific page"""
     if page_key not in st.session_state.messages:
         st.session_state.messages[page_key] = []
     return st.session_state.messages[page_key]
 
+
 def add_message(page_key, role, content):
     """Add a message to the chat history"""
     if page_key not in st.session_state.messages:
         st.session_state.messages[page_key] = []
     st.session_state.messages[page_key].append({"role": role, "content": content})
+
 
 def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant_id):
     """Start a new chat session"""
@@ -49,19 +54,21 @@ def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant
             "session_id": session_id,
             "dsp_code": dsp_code,
             "station_code": station_code,
-            "applicant_id": applicant_id
+            "applicant_id": applicant_id,
         }
-        
+
         response = requests.post(
-            f"https://lokitech-demo-api.demotrt.com/{endpoint}",
-            json=payload
+            f"https://lokitech-demo-api.demotrt.com/{endpoint}", json=payload
         )
         if response.status_code == 200:
             assistant_message = response.json()["response"]
             add_message(page_key, "assistant", assistant_message)
-            
+
             # If this is the driver screening endpoint, display applicant details if available
-            if endpoint == "driver-screening" and "applicant_details" in response.json():
+            if (
+                endpoint == "driver-screening"
+                and "applicant_details" in response.json()
+            ):
                 applicant_details = response.json()["applicant_details"]
                 if applicant_details:
                     details_message = f"""
@@ -74,7 +81,7 @@ def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant
 - ID: {applicant_details.get('applicantID', '')}
 """
                     add_message(page_key, "system", details_message)
-            
+
             st.session_state.chat_started[page_key] = True
             st.session_state.last_dsp_code[page_key] = dsp_code
             return True
@@ -85,27 +92,39 @@ def start_chat(page_key, endpoint, dsp_code, session_id, station_code, applicant
         st.error(f"Error starting chat: {str(e)}")
         return False
 
+
 def user_page():
     st.title("Driver Screening Interview")
     st.subheader("User")
-    
+
     # DSP code input
-    dsp_code = st.text_input("DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code")
-    
+    dsp_code = st.text_input(
+        "DSP Code (Optional)", value=st.session_state.dsp_code, key="user_dsp_code"
+    )
+
     # Add station code and applicant ID inputs
     col1, col2 = st.columns(2)
     with col1:
-        station_code = st.text_input("Station Code", value="DJE1", key="user_station_code")
+        station_code = st.text_input(
+            "Station Code", value="DJE1", key="user_station_code"
+        )
     with col2:
-        applicant_id = st.number_input("Applicant ID", value=5, min_value=1, key="user_applicant_id")
-    
+        applicant_id = st.number_input(
+            "Applicant ID", value=5, min_value=1, key="user_applicant_id"
+        )
+
     # Check if DSP code has changed and we need to restart chat
     dsp_code_changed = dsp_code != st.session_state.last_dsp_code["user"] and dsp_code
-    
+
     # Start chat button - disabled if no DSP code or chat already started
     start_button_disabled = st.session_state.chat_started["user"] or not dsp_code
-    
-    if st.button("Start Screening", disabled=start_button_disabled, key="start_user_chat") or dsp_code_changed:
+
+    if (
+        st.button(
+            "Start Screening", disabled=start_button_disabled, key="start_user_chat"
+        )
+        or dsp_code_changed
+    ):
         # Update DSP code
         st.session_state.dsp_code = dsp_code
         st.session_state.station_code = station_code
@@ -114,9 +133,16 @@ def user_page():
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         # Start new chat
-        if start_chat("user", "driver-screening", dsp_code, st.session_state.user_session_id, station_code, applicant_id):
+        if start_chat(
+            "user",
+            "driver-screening",
+            dsp_code,
+            st.session_state.user_session_id,
+            station_code,
+            applicant_id,
+        ):
             st.rerun()
-    
+
     # Reset button
     if st.button("Reset Chat", key="reset_user_chat"):
         st.session_state.chat_started["user"] = False
@@ -124,35 +150,35 @@ def user_page():
         if "user" in st.session_state.messages:
             st.session_state.messages["user"] = []
         st.rerun()
-    
+
     # Display chat messages
     for message in get_chat_history("user"):
         with st.chat_message(message["role"]):
             st.write(message["content"])
-    
+
     # Chat input (only show if chat has started)
     if st.session_state.chat_started["user"]:
         if prompt := st.chat_input("Type your response here...", key="user_input"):
             # Add user message to chat history
             add_message("user", "user", prompt)
-            
+
             # Make API call with user message
             try:
                 payload = {
                     "message": prompt,
-                    "session_id": st.session_state.user_session_id
+                    "session_id": st.session_state.user_session_id,
                 }
-                
+
                 if dsp_code:
                     payload["dsp_code"] = dsp_code
                     payload["station_code"] = station_code
                     payload["applicant_id"] = applicant_id
-                    
+
                 response = requests.post(
                     "https://lokitech-demo-api.demotrt.com/driver-screening",
-                    json=payload
+                    json=payload,
                 )
-                
+
                 if response.status_code == 200:
                     assistant_message = response.json()["response"]
                     add_message("user", "assistant", assistant_message)
@@ -167,40 +193,61 @@ def user_page():
         else:
             st.info("Click 'Start Screening' to begin the interview")
 
+
 def admin_page():
     st.title("Company Admin Panel")
     st.subheader("Manage Screening Questions")
-    
+
     # DSP code input (required for admin)
-    dsp_code = st.text_input("DSP Code (Required)", value=st.session_state.dsp_code, key="admin_dsp_code")
-    
+    dsp_code = st.text_input(
+        "DSP Code (Required)", value=st.session_state.dsp_code, key="admin_dsp_code"
+    )
+
     # Add station code and applicant ID inputs for consistency
     col1, col2 = st.columns(2)
     with col1:
-        station_code = st.text_input("Station Code", value="DJE1", key="admin_station_code")
+        station_code = st.text_input(
+            "Station Code", value="DJE1", key="admin_station_code"
+        )
     with col2:
-        applicant_id = st.number_input("Applicant ID", value=5, min_value=1, key="admin_applicant_id")
-    
+        applicant_id = st.number_input(
+            "Applicant ID", value=5, min_value=1, key="admin_applicant_id"
+        )
+
     if not dsp_code:
         st.warning("Please enter a DSP Code to manage questions")
         return
-    
+
     # Check if DSP code has changed and we need to restart chat
     dsp_code_changed = dsp_code != st.session_state.last_dsp_code["admin"] and dsp_code
-    
+
     # Start chat button
     start_button_disabled = st.session_state.chat_started["admin"]
-    
-    if st.button("Start Admin Session", disabled=start_button_disabled, key="start_admin_chat") or dsp_code_changed:
+
+    if (
+        st.button(
+            "Start Admin Session",
+            disabled=start_button_disabled,
+            key="start_admin_chat",
+        )
+        or dsp_code_changed
+    ):
         # Update DSP code
         st.session_state.dsp_code = dsp_code
         # Clear previous messages
         if "admin" in st.session_state.messages:
             st.session_state.messages["admin"] = []
         # Start new chat
-        if start_chat("admin", "company-admin", dsp_code, st.session_state.admin_session_id, station_code, applicant_id):
+        if start_chat(
+            "admin",
+            "company-admin",
+            dsp_code,
+            st.session_state.admin_session_id,
+            station_code,
+            applicant_id,
+        ):
             st.rerun()
-    
+
     # Reset button
     if st.button("Reset Chat", key="reset_admin_chat"):
         st.session_state.chat_started["admin"] = False
@@ -208,18 +255,20 @@ def admin_page():
         if "admin" in st.session_state.messages:
             st.session_state.messages["admin"] = []
         st.rerun()
-    
+
     # Display current questions if available
     with st.expander("View Current Questions", expanded=False):
         if st.button("Refresh Questions"):
             try:
-                response = requests.get(f"https://lokitech-demo-api.demotrt.com/company-questions/{dsp_code}")
+                response = requests.get(
+                    f"https://lokitech-demo-api.demotrt.com/company-questions/{dsp_code}"
+                )
                 if response.status_code == 200:
                     questions = response.json().get("questions", [])
                     if questions:
                         for i, q in enumerate(questions):
                             st.write(f"{i+1}. {q.get('question_text')} (Required)")
-                            if 'criteria' in q and q['criteria']:
+                            if "criteria" in q and q["criteria"]:
                                 st.markdown(f"   - **Criteria:** {q.get('criteria')}")
                                 st.divider()
                             else:
@@ -231,18 +280,18 @@ def admin_page():
                     st.error(f"Error fetching questions: {response.status_code}")
             except Exception as e:
                 st.error(f"Error: {str(e)}")
-    
+
     # Display chat messages
     for message in get_chat_history("admin"):
         with st.chat_message(message["role"]):
             st.write(message["content"])
-    
+
     # Chat input (only show if chat has started)
     if st.session_state.chat_started["admin"]:
         if prompt := st.chat_input("Type your command here...", key="admin_input"):
             # Add user message to chat history
             add_message("admin", "user", prompt)
-            
+
             # Make API call with admin message
             try:
                 response = requests.post(
@@ -250,10 +299,10 @@ def admin_page():
                     json={
                         "message": prompt,
                         "session_id": st.session_state.admin_session_id,
-                        "dsp_code": dsp_code
-                    }
+                        "dsp_code": dsp_code,
+                    },
                 )
-                
+
                 if response.status_code == 200:
                     assistant_message = response.json()["response"]
                     add_message("admin", "assistant", assistant_message)
@@ -265,32 +314,35 @@ def admin_page():
     else:
         st.info("Click 'Start Admin Session' to begin managing questions")
 
+
 def main():
     # Set page config
     st.set_page_config(
-        page_title="Lokiteck Driver Screening",
-        page_icon="🚚",
-        layout="wide"
+        page_title="Lokiteck Driver Screening", page_icon="🚚", layout="wide"
     )
-    
+
     # Initialize session state
     initialize_session_state()
-    
+
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Select Page", ["User", "Admin"], index=0 if st.session_state.current_page == "User" else 1)
-    
+    page = st.sidebar.radio(
+        "Select Page",
+        ["User", "Admin"],
+        index=0 if st.session_state.current_page == "User" else 1,
+    )
+
     # Update current page in session state
     if page != st.session_state.current_page:
         st.session_state.current_page = page
         st.rerun()
-    
+
     # Display session information
     st.sidebar.divider()
     st.sidebar.subheader("Session Info")
     st.sidebar.text(f"User Session ID: {st.session_state.user_session_id}")
     st.sidebar.text(f"Admin Session ID: {st.session_state.admin_session_id}")
-    
+
     if st.sidebar.button("Generate New Session IDs"):
         st.session_state.user_session_id = str(uuid.uuid4())
         st.session_state.admin_session_id = str(uuid.uuid4())
@@ -298,12 +350,13 @@ def main():
         st.session_state.chat_started = {"user": False, "admin": False}
         st.session_state.last_company_id = {"user": "", "admin": ""}
         st.rerun()
-    
+
     # Display selected page
     if page == "User":
         user_page()
     else:
         admin_page()
+
 
 if __name__ == "__main__":
     main()

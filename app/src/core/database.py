@@ -9,19 +9,26 @@ import logging
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
 # Print connection string for debugging (without password)
-connection_string = settings.MONGODB_URI.replace(settings.MONGODB_PASSWORD, "****") if settings.MONGODB_PASSWORD else settings.MONGODB_URI
+connection_string = (
+    settings.MONGODB_URI.replace(settings.MONGODB_PASSWORD, "****")
+    if settings.MONGODB_PASSWORD
+    else settings.MONGODB_URI
+)
 logger.info(f"MongoDB connection string: {connection_string}")
 logger.info(f"MongoDB password set: {'Yes' if settings.MONGODB_PASSWORD else 'No'}")
 
+
 class Database:
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(Database, cls).__new__(cls)
@@ -35,13 +42,13 @@ class Database:
                     connectTimeoutMS=5000,  # Connection timeout (5 seconds)
                     serverSelectionTimeoutMS=5000,  # Server selection timeout (5 seconds)
                     retryWrites=True,  # Retry write operations if they fail
-                    w="majority"  # Write concern - wait for acknowledgment from a majority of replicas
+                    w="majority",  # Write concern - wait for acknowledgment from a majority of replicas
                 )
-                
+
                 # Test the connection
-                cls._instance.client.admin.command('ping')
+                cls._instance.client.admin.command("ping")
                 logger.info("Successfully connected to MongoDB Atlas")
-                
+
                 cls._instance.db = cls._instance.client[settings.MONGODB_DB_NAME]
             except (ConnectionFailure, ServerSelectionTimeoutError) as e:
                 logger.error(f"Failed to connect to MongoDB Atlas: {e}")
@@ -49,23 +56,26 @@ class Database:
                 try:
                     logger.info("Attempting to connect to local MongoDB instance")
                     cls._instance.client = MongoClient("mongodb://localhost:27017")
-                    cls._instance.client.admin.command('ping')
+                    cls._instance.client.admin.command("ping")
                     logger.info("Successfully connected to local MongoDB instance")
                     cls._instance.db = cls._instance.client[settings.MONGODB_DB_NAME]
                 except Exception as local_e:
-                    logger.error(f"Failed to connect to local MongoDB instance: {local_e}")
+                    logger.error(
+                        f"Failed to connect to local MongoDB instance: {local_e}"
+                    )
                     raise Exception("Could not connect to any MongoDB instance")
             except Exception as e:
                 logger.error(f"Unexpected error connecting to MongoDB: {e}")
                 raise
         return cls._instance
-    
+
     def get_collection(self, collection_name):
         return self.db[collection_name]
-    
+
     def close(self):
         self.client.close()
         logger.info("MongoDB connection closed")
+
 
 def get_db():
     return Database()

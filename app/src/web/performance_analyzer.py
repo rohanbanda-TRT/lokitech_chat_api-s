@@ -29,37 +29,36 @@ PREDEFINED_QUESTIONS = [
     "Jessica's POD acceptance rate is 97%",
     "Thomas had 3 harsh braking events",
     "Lisa's customer delivery feedback is at 96%",
-    "Kevin's following distance rate shows 2 violations"
+    "Kevin's following distance rate shows 2 violations",
 ]
+
 
 def initialize_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+
 def analyze_dsp_performance(messages):
     """
     Analyze DSP performance using the external API
-    
+
     Args:
         messages (str): The messages to analyze
-        
+
     Returns:
         str: The analysis result
     """
     try:
         response = requests.post(
-            'https://lokitech-demo-api.demotrt.com/analyze-performance',
-            headers={
-                'accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            json={"messages": messages}
+            "https://lokitech-demo-api.demotrt.com/analyze-performance",
+            headers={"accept": "application/json", "Content-Type": "application/json"},
+            json={"messages": messages},
         )
-        
+
         if response.status_code == 200:
             # Extract the analysis from the JSON response
             response_data = response.json()
-            
+
             # Check if response contains analysis field
             if isinstance(response_data, dict) and "analysis" in response_data:
                 return response_data["analysis"]
@@ -73,72 +72,80 @@ def analyze_dsp_performance(messages):
     except Exception as e:
         return f"Error: Failed to connect to API - {str(e)}"
 
+
 def main():
     # Load environment variables
     load_dotenv()
-    
+
     # Page configuration
     st.set_page_config(
-        page_title="DSP Driver Performance Analyzer",
-        page_icon="🚚",
-        layout="wide"
+        page_title="DSP Driver Performance Analyzer", page_icon="🚚", layout="wide"
     )
-    
+
     # Initialize session state
     initialize_session_state()
-    
+
     # Header
     st.title("DSP Driver Performance Analyzer")
     st.markdown("Chat with our AI to analyze driver performance data.")
-    
+
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
-    
+
     # Predefined questions section
     with st.sidebar:
         st.subheader("Example Performance Queries")
         st.markdown("Click on any example to analyze:")
-        
+
         for question in PREDEFINED_QUESTIONS:
             if st.button(question, key=f"btn_{question}"):
                 # Add user message to chat history
                 st.session_state.messages.append({"role": "user", "content": question})
-                
+
                 # Generate and display assistant response
                 try:
                     analysis = analyze_dsp_performance(question)
-                    st.session_state.messages.append({"role": "assistant", "content": analysis})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": analysis}
+                    )
                     st.rerun()
                 except Exception as e:
                     error_message = f"An error occurred: {str(e)}"
-                    st.session_state.messages.append({"role": "assistant", "content": error_message})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": error_message}
+                    )
                     st.rerun()
-        
+
         # Add a clear chat button
         if st.button("Clear Chat"):
             st.session_state.messages = []
             st.rerun()
-    
+
     # Chat input
     if prompt := st.chat_input("Enter driver performance data here..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.write(prompt)
-            
+
         # Generate and display assistant response
         with st.chat_message("assistant"):
             with st.spinner("Analyzing..."):
                 try:
                     analysis = analyze_dsp_performance(prompt)
                     st.write(analysis)
-                    st.session_state.messages.append({"role": "assistant", "content": analysis})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": analysis}
+                    )
                 except Exception as e:
                     error_message = f"An error occurred: {str(e)}"
                     st.error(error_message)
-                    st.session_state.messages.append({"role": "assistant", "content": error_message})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": error_message}
+                    )
+
 
 if __name__ == "__main__":
     main()
