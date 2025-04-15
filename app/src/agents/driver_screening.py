@@ -123,8 +123,15 @@ class DriverScreeningAgent:
         Returns:
             Formatted string of company-specific questions
         """
-        questions = self.questions_manager.get_questions(dsp_code)
-
+        result = self.questions_manager.get_questions(dsp_code)
+        
+        # Handle the new dictionary structure returned by the questions manager
+        if isinstance(result, dict):
+            questions = result.get("questions", [])
+        else:
+            # For backward compatibility with older implementations
+            questions = result
+            
         if not questions:
             return "   - No company-specific questions defined. Skip this section."
 
@@ -143,6 +150,29 @@ class DriverScreeningAgent:
         )
 
         return "\n".join(formatted_questions)
+
+    def _get_company_time_slots_and_contact_info(self, dsp_code: str) -> tuple:
+        """
+        Get company time slots and contact information
+        
+        Args:
+            dsp_code: The unique identifier for the company
+            
+        Returns:
+            Tuple of (time_slots, contact_info)
+        """
+        result = self.questions_manager.get_questions(dsp_code)
+        
+        # Default values
+        time_slots = []
+        contact_info = "our support team"
+        
+        # Extract time slots and contact info if available
+        if isinstance(result, dict):
+            time_slots = result.get("time_slots", [])
+            contact_info = result.get("contact_info", "our support team")
+            
+        return time_slots, contact_info
 
     def _create_prompt(
         self, dsp_code: str = None, applicant_details: dict = None
@@ -163,6 +193,23 @@ class DriverScreeningAgent:
         )
         if dsp_code:
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
+            
+        # Get time slots and contact info
+        time_slots_text = "No specific time slots are available."
+        contact_info_text = "No specific contact information available."
+        
+        if dsp_code:
+            time_slots, contact_info = self._get_company_time_slots_and_contact_info(dsp_code)
+            
+            # Format time slots if available
+            if time_slots and len(time_slots) > 0:
+                time_slots_text = "Available interview time slots:\n"
+                for i, slot in enumerate(time_slots, 1):
+                    time_slots_text += f"   {i}. {slot}\n"
+            
+            # Format contact info if available
+            if contact_info:
+                contact_info_text = f"Company contact information: {contact_info}"
 
         # Choose the appropriate prompt template based on whether we have the applicant's details
         if applicant_details:
@@ -194,7 +241,11 @@ class DriverScreeningAgent:
 - Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
 - Applicant Status: {applicant_details.get('applicantStatus', 'N/A')}
 
-Remember to use the above information for internal processing only. Never share these details directly with the applicant.
+**Company Information (For Internal Reference Only - Use as directed in the instructions):**
+{time_slots_text}
+{contact_info_text}
+
+Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
 """
             # Insert the applicant details section after the initial message section
             prompt_text = prompt_text.replace(
@@ -231,11 +282,11 @@ Remember to use the above information for internal processing only. Never share 
             applicant_details: The applicant details dictionary
         """
         try:
-            # Only update if the current status is SENT
+            # Only update if the current status is SENT or empty
             current_status = applicant_details.get("applicantStatus", "").strip()
-            if current_status == "SENT":
+            if current_status == "SENT" or current_status == "":
                 logger.info(
-                    f"Updating applicant status for {applicant_name} from SENT to INPROGRESS"
+                    f"Updating applicant status for {applicant_name} from {current_status if current_status else 'empty'} to INPROGRESS"
                 )
 
                 # Get the required parameters from applicant_details
@@ -420,7 +471,7 @@ Remember to use the above information for internal processing only. Never share 
             if applicant_details_obj:
                 applicant_details = applicant_details_obj.model_dump()
 
-                # Check if required fields (name, mobile, status) are present
+                # Check if required fields (name, mobile) are present
                 first_name = applicant_details.get("firstName", "").strip()
                 last_name = applicant_details.get("lastName", "").strip()
                 mobile_number = applicant_details.get("mobileNumber", "").strip()
@@ -431,7 +482,6 @@ Remember to use the above information for internal processing only. Never share 
                     not first_name
                     or not last_name
                     or not mobile_number
-                    or not applicant_status
                 ):
                     logger.warning(
                         f"Missing required applicant details. Name: '{first_name} {last_name}', "
@@ -440,7 +490,7 @@ Remember to use the above information for internal processing only. Never share 
                     return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
 
                 # Check if the applicant status is not SENT or INPROGRESS, which means screening is already done
-                if applicant_status != "SENT" and applicant_status != "INPROGRESS":
+                if applicant_status != "SENT" and applicant_status != "INPROGRESS" and applicant_status != "":
                     logger.warning(
                         f"Applicant with ID {applicant_id_to_use} has already been screened. Current status: {applicant_status}"
                     )

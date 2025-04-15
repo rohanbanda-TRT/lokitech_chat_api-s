@@ -20,6 +20,12 @@ class CompanyQuestions(BaseModel):
 
     dsp_code: str = Field(description="Unique identifier for the company")
     questions: List[Question] = Field(description="List of screening questions")
+    time_slots: Optional[List[str]] = Field(
+        default=None, description="Available time slots for screening"
+    )
+    contact_info: Optional[str] = Field(
+        default=None, description="Contact information for the company"
+    )
     append: bool = Field(
         default=True,
         description="Whether to append to existing questions or replace them",
@@ -43,3 +49,21 @@ class DeleteQuestionInput(BaseModel):
 
     dsp_code: str = Field(description="Unique identifier for the company")
     question_index: int = Field(description="Index of the question to delete (0-based)")
+
+
+class UpdateTimeSlotsInput(BaseModel):
+    """
+    Model for updating time slots
+    """
+    
+    dsp_code: str = Field(description="Unique identifier for the company")
+    time_slots: List[str] = Field(description="Available time slots for screening")
+
+
+class UpdateContactInfoInput(BaseModel):
+    """
+    Model for updating contact information
+    """
+    
+    dsp_code: str = Field(description="Unique identifier for the company")
+    contact_info: str = Field(description="Contact information for the company")

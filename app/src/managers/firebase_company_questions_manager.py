@@ -22,7 +22,8 @@ class FirebaseCompanyQuestionsManager:
         logger.info("FirebaseCompanyQuestionsManager initialized")
 
     def create_questions(
-        self, dsp_code: str, questions: List[Dict[str, Any]], append: bool = True
+        self, dsp_code: str, questions: List[Dict[str, Any]], append: bool = True,
+        time_slots: Optional[List[str]] = None, contact_info: Optional[str] = None
     ) -> bool:
         """
         Create or add company-specific questions to the database
@@ -31,6 +32,8 @@ class FirebaseCompanyQuestionsManager:
             dsp_code: The unique identifier for the company
             questions: List of question objects with question_text and required fields
             append: If True, append new questions to existing ones; if False, replace them
+            time_slots: Optional list of available time slots
+            contact_info: Optional contact information
 
         Returns:
             bool: True if successful, False otherwise
@@ -39,50 +42,67 @@ class FirebaseCompanyQuestionsManager:
             logger.info(f"Attempting to create questions for dsp_code: {dsp_code}")
             logger.info(f"Questions to create: {questions}")
             logger.info(f"Append mode: {append}")
+            logger.info(f"Time slots: {time_slots}")
+            logger.info(f"Contact info: {contact_info}")
 
             # Reference to the document
             doc_ref = self.collection.document(dsp_code)
 
             # Get the document
             doc = doc_ref.get()
+            
+            # Prepare update data
+            update_data = {}
+            
+            if questions:
+                if doc.exists and append:
+                    # Get existing questions and append new ones
+                    doc_data = doc.to_dict()
+                    existing_questions = doc_data.get("questions", [])
+                    logger.info(f"Found {len(existing_questions)} existing questions")
 
-            if doc.exists and append:
-                # Get existing questions and append new ones
-                doc_data = doc.to_dict()
-                existing_questions = doc_data.get("questions", [])
-                logger.info(f"Found {len(existing_questions)} existing questions")
+                    # Combine existing questions with new ones
+                    combined_questions = existing_questions + questions
+                    logger.info(f"Combined questions count: {len(combined_questions)}")
+                    
+                    update_data["questions"] = combined_questions
+                else:
+                    update_data["questions"] = questions
+            
+            # Add time_slots if provided
+            if time_slots is not None:
+                update_data["time_slots"] = time_slots
+                
+            # Add contact_info if provided
+            if contact_info is not None:
+                update_data["contact_info"] = contact_info
 
-                # Combine existing questions with new ones
-                combined_questions = existing_questions + questions
-                logger.info(f"Combined questions count: {len(combined_questions)}")
-
-                # Update with combined questions
-                doc_ref.update({"questions": combined_questions})
-                logger.info(f"Updated document with combined questions")
-                return True
+            # Update or set the document
+            if doc.exists:
+                doc_ref.update(update_data)
+                logger.info(f"Updated document with new data")
             else:
-                # Either no existing questions or not in append mode
-                # Set the document data
-                doc_ref.set({"questions": questions})
-                logger.info(f"Set document with new questions")
-                return True
+                doc_ref.set(update_data)
+                logger.info(f"Created new document with data")
+                
+            return True
 
         except Exception as e:
-            logger.error(f"Error creating questions: {e}")
+            logger.error(f"Error creating/updating company data: {e}")
             import traceback
 
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    def get_questions(self, dsp_code: str) -> List[Dict[str, Any]]:
+    def get_questions(self, dsp_code: str) -> Dict[str, Any]:
         """
-        Retrieve company-specific questions from the database
+        Retrieve company-specific questions and info from the database
 
         Args:
             dsp_code: The unique identifier for the company
 
         Returns:
-            List of question objects
+            Dict containing questions, time_slots, and contact_info
         """
         try:
             logger.info(f"Retrieving questions for dsp_code: {dsp_code}")
@@ -93,21 +113,23 @@ class FirebaseCompanyQuestionsManager:
 
             if doc.exists:
                 doc_data = doc.to_dict()
-                questions = doc_data.get("questions", [])
-                logger.info(
-                    f"Found {len(questions)} questions for dsp_code: {dsp_code}"
-                )
-                return questions
+                result = {
+                    "questions": doc_data.get("questions", []),
+                    "time_slots": doc_data.get("time_slots", None),
+                    "contact_info": doc_data.get("contact_info", None)
+                }
+                logger.info(f"Found data for dsp_code: {dsp_code}")
+                return result
             else:
-                logger.info(f"No questions found for dsp_code: {dsp_code}")
-                return []
+                logger.info(f"No data found for dsp_code: {dsp_code}")
+                return {"questions": [], "time_slots": None, "contact_info": None}
 
         except Exception as e:
-            logger.error(f"Error retrieving questions: {e}")
+            logger.error(f"Error retrieving company data: {e}")
             import traceback
 
             logger.error(f"Traceback: {traceback.format_exc()}")
-            return []
+            return {"questions": [], "time_slots": None, "contact_info": None}
 
     def update_question(
         self, dsp_code: str, question_index: int, updated_question: Dict[str, Any]
@@ -222,6 +244,76 @@ class FirebaseCompanyQuestionsManager:
 
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+
+    def update_time_slots(self, dsp_code: str, time_slots: List[str]) -> bool:
+        """
+        Update time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            time_slots: List of available time slots
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating time slots for dsp_code: {dsp_code}")
+            logger.info(f"Time slots: {time_slots}")
+
+            # Reference to the document
+            doc_ref = self.collection.document(dsp_code)
+            
+            # Update or create the document with time slots
+            if doc_ref.get().exists:
+                doc_ref.update({"time_slots": time_slots})
+                logger.info(f"Updated document with time slots")
+            else:
+                doc_ref.set({"time_slots": time_slots})
+                logger.info(f"Created new document with time slots")
+                
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating time slots: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+            
+    def update_contact_info(self, dsp_code: str, contact_info: str) -> bool:
+        """
+        Update contact information for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            contact_info: Contact information
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating contact info for dsp_code: {dsp_code}")
+            logger.info(f"Contact info: {contact_info}")
+
+            # Reference to the document
+            doc_ref = self.collection.document(dsp_code)
+            
+            # Update or create the document with contact info
+            if doc_ref.get().exists:
+                doc_ref.update({"contact_info": contact_info})
+                logger.info(f"Updated document with contact info")
+            else:
+                doc_ref.set({"contact_info": contact_info})
+                logger.info(f"Created new document with contact info")
+                
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating contact info: {e}")
             import traceback
 
             logger.error(f"Traceback: {traceback.format_exc()}")

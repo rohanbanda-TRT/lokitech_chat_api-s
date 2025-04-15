@@ -8,13 +8,14 @@ import logging
 import uuid
 import json
 import re
-from typing import Annotated, TypedDict, Dict, Any, Optional
+from typing import Annotated, TypedDict, Dict, Any, Optional, List
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_core.tools import BaseTool, Tool
+from langchain_core.tools import BaseTool, Tool, StructuredTool
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from pydantic import BaseModel, Field
 
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -24,7 +25,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..prompts.company_admin import COMPANY_ADMIN_PROMPT
-from ..models.question_models import CompanyQuestions
+from ..models.question_models import CompanyQuestions, Question
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..tools.company_admin_tools import CompanyAdminTools
 
@@ -40,6 +41,40 @@ class CompanyAdminState(TypedDict):
 
     messages: Annotated[list[BaseMessage], add_messages]
     dsp_code: Optional[str]
+
+
+# Tool input schemas
+class CreateQuestionsInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    questions: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of questions with question_text and criteria")
+    time_slots: Optional[List[str]] = Field(default=None, description="Available time slots for screening")
+    contact_info: Optional[str] = Field(default=None, description="Contact information for the company")
+    append: bool = Field(default=True, description="Whether to append to existing questions or replace them")
+
+
+class GetQuestionsInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+
+
+class UpdateQuestionToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    question_index: int = Field(description="Index of the question to update (0-based)")
+    updated_question: Dict[str, Any] = Field(description="Updated question data")
+
+
+class DeleteQuestionToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    question_index: int = Field(description="Index of the question to delete (0-based)")
+
+
+class UpdateTimeSlotsToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    time_slots: List[str] = Field(description="Available time slots for screening")
+
+
+class UpdateContactInfoToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    contact_info: str = Field(description="Contact information for the company")
 
 
 class CompanyAdminAgent:
@@ -66,27 +101,69 @@ class CompanyAdminAgent:
         # Use the same tools as in the original implementation
         self.admin_tools = CompanyAdminTools()
 
-        # Set up tools using the standard Tool class
+        # Helper methods for tools
+        def create_questions_tool(data: CreateQuestionsInput) -> str:
+            """Create or update company questions, time slots, and contact info"""
+            # Validate and clean up the input data
+            cleaned_data = data.model_dump(exclude_none=True)
+            
+            # If questions is empty list, remove it to avoid confusion
+            if "questions" in cleaned_data and not cleaned_data["questions"]:
+                del cleaned_data["questions"]
+                
+            return self.admin_tools.create_questions(json.dumps(cleaned_data))
+            
+        def get_questions_tool(data: GetQuestionsInput) -> str:
+            """Get company questions, time slots, and contact info"""
+            return self.admin_tools.get_questions(data.dsp_code)
+            
+        def update_question_tool(data: UpdateQuestionToolInput) -> str:
+            """Update a specific question"""
+            return self.admin_tools.update_question(json.dumps(data.model_dump()))
+            
+        def delete_question_tool(data: DeleteQuestionToolInput) -> str:
+            """Delete a specific question"""
+            return self.admin_tools.delete_question(json.dumps(data.model_dump()))
+            
+        def update_time_slots_tool(data: UpdateTimeSlotsToolInput) -> str:
+            """Update time slots"""
+            return self.admin_tools.update_time_slots(json.dumps(data.model_dump()))
+            
+        def update_contact_info_tool(data: UpdateContactInfoToolInput) -> str:
+            """Update contact info"""
+            return self.admin_tools.update_contact_info(json.dumps(data.model_dump()))
+
+        # Set up tools using StructuredTool for better argument handling
         self.tools = [
-            Tool(
+            StructuredTool.from_function(
+                func=create_questions_tool,
                 name="create_questions",
-                description="Create or add new questions to the database",
-                func=self.admin_tools.create_questions,
+                description="Create or add new questions, time slots, and contact info to the database",
             ),
-            Tool(
+            StructuredTool.from_function(
+                func=get_questions_tool,
                 name="get_questions",
-                description="Retrieve existing questions for a company",
-                func=self.admin_tools.get_questions,
+                description="Retrieve existing questions, time slots, and contact info for a company",
             ),
-            Tool(
+            StructuredTool.from_function(
+                func=update_question_tool,
                 name="update_question",
                 description="Update a specific question for a company",
-                func=self.admin_tools.update_question,
             ),
-            Tool(
+            StructuredTool.from_function(
+                func=delete_question_tool,
                 name="delete_question",
                 description="Delete a specific question for a company",
-                func=self.admin_tools.delete_question,
+            ),
+            StructuredTool.from_function(
+                func=update_time_slots_tool,
+                name="update_time_slots",
+                description="Update available time slots for a company",
+            ),
+            StructuredTool.from_function(
+                func=update_contact_info_tool,
+                name="update_contact_info",
+                description="Update contact information for a company",
             ),
         ]
 
@@ -103,8 +180,15 @@ class CompanyAdminAgent:
         # Create the agent using LangChain's create_openai_tools_agent
         self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
 
-        # Create the agent executor
-        self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools)
+        # Create the agent executor with proper configuration
+        self.agent_executor = AgentExecutor(
+            agent=self.agent, 
+            tools=self.tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=5,
+            early_stopping_method="generate"
+        )
 
         # Build the graph
         self.graph = self._create_graph()
@@ -155,38 +239,8 @@ class CompanyAdminAgent:
             except Exception as e:
                 # Log the error
                 logger.error(f"Error in agent_node: {str(e)}")
-
-                # If it's a tool exception related to delete_question, try to handle it
-                if "Too many arguments to single-input tool delete_question" in str(e):
-                    try:
-                        # Extract the DSP code and question index from the error message
-                        error_msg = str(e)
-                        match = re.search(r"Args: \['([^']+)', (\d+)\]", error_msg)
-                        if match:
-                            dsp_code = match.group(1)
-                            question_index = int(match.group(2))
-
-                            # Create a proper JSON input for delete_question
-                            delete_input = json.dumps(
-                                {
-                                    "dsp_code": dsp_code,
-                                    "question_index": question_index,  # Use 0-based indexing
-                                }
-                            )
-
-                            # Call the delete_question tool directly
-                            result = self.admin_tools.delete_question(delete_input)
-                            return {
-                                "messages": [
-                                    AIMessage(
-                                        content=f"I've deleted the question as requested. {result}"
-                                    )
-                                ]
-                            }
-                    except Exception as inner_e:
-                        logger.error(
-                            f"Error handling delete_question exception: {str(inner_e)}"
-                        )
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
 
                 # Return a generic error message
                 return {
