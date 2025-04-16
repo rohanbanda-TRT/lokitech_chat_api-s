@@ -231,22 +231,22 @@ class DriverScreeningAgent:
 
             # Add applicant details section to the prompt
             applicant_details_text = f"""
-**Applicant Details (For Internal Reference Only - DO NOT share with the applicant):**
-- DSP Short Code: {applicant_details.get('dspShortCode', 'N/A')}
-- DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
-- Applicant ID: {applicant_details.get('applicantID', 'N/A')}
-- DSP Name: {applicant_details.get('dspName', 'N/A')}
-- First Name: {applicant_details.get('firstName', 'N/A')}
-- Last Name: {applicant_details.get('lastName', 'N/A')}
-- Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
-- Applicant Status: {applicant_details.get('applicantStatus', 'N/A')}
+            **Applicant Details (For Internal Reference Only - DO NOT share with the applicant):**
+            - DSP Short Code: {applicant_details.get('dspShortCode', 'N/A')}
+            - DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
+            - Applicant ID: {applicant_details.get('applicantID', 'N/A')}
+            - DSP Name: {applicant_details.get('dspName', 'N/A')}
+            - First Name: {applicant_details.get('firstName', 'N/A')}
+            - Last Name: {applicant_details.get('lastName', 'N/A')}
+            - Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
+            - Applicant Status: {applicant_details.get('applicantStatus', 'N/A')}
 
-**Company Information (For Internal Reference Only - Use as directed in the instructions):**
-{time_slots_text}
-{contact_info_text}
+            **Company Information (For Internal Reference Only - Use as directed in the instructions):**
+            {time_slots_text}
+            {contact_info_text}
 
-Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
-"""
+            Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
+            """
             # Insert the applicant details section after the initial message section
             prompt_text = prompt_text.replace(
                 "Screening Process:", f"{applicant_details_text}\nScreening Process:"
@@ -487,14 +487,24 @@ Remember to use the above information for internal processing only. Never share 
                         f"Missing required applicant details. Name: '{first_name} {last_name}', "
                         f"Mobile: '{mobile_number}', Status: '{applicant_status}'"
                     )
-                    return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+                    
+                    # Get company contact info if available
+                    _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                    contact_info = contact_info_text if contact_info_text else "our support team"
+                    
+                    return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
 
                 # Check if the applicant status is not SENT or INPROGRESS, which means screening is already done
                 if applicant_status != "SENT" and applicant_status != "INPROGRESS" and applicant_status != "":
                     logger.warning(
                         f"Applicant with ID {applicant_id_to_use} has already been screened. Current status: {applicant_status}"
                     )
-                    return "Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact our support team."
+                    
+                    # Get company contact info if available
+                    _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                    contact_info = contact_info_text if contact_info_text else "our support team"
+                    
+                    return f"Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
 
                 # Format the full name from first and last name
                 applicant_name = f"{first_name} {last_name}".strip()
@@ -512,8 +522,12 @@ Remember to use the above information for internal processing only. Never share 
                     f"station_code: {station_code_to_use}, applicant_id: {applicant_id_to_use}"
                 )
 
+                # Get company contact info if available
+                _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                contact_info = contact_info_text if contact_info_text else "our support team"
+                
                 # Return a polite message to end the conversation if applicant details are not found
-                return "I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact our support team for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+                return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
 
         # Create a human message
         human_message = HumanMessage(content=user_input)
