@@ -4,7 +4,7 @@ from ..agents.performance_analyzer import PerformanceAnalyzerAgent
 from ..agents.coaching_history_analyzer import CoachingFeedbackGenerator
 from ..core.config import get_settings
 from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAgent
-from typing import Optional, List
+from typing import Optional, List, Dict
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..models.question_models import Question
 import logging
@@ -91,8 +91,13 @@ class CompanyQuestionsRequest(BaseModel):
     questions: List[Question]
 
 
+class EmployeeInfo(BaseModel):
+    name: str
+    user_id: Optional[str] = None
+
+
 class CoachingFeedbackRequest(BaseModel):
-    query: str = Field(
+    message: str = Field(
         ...,
         min_length=2,
         description="Coaching query (e.g., 'Moises was cited for a speeding violation while operating a company vehicle.')",
@@ -100,6 +105,15 @@ class CoachingFeedbackRequest(BaseModel):
     session_id: Optional[str] = Field(
         None,
         description="Optional session identifier for maintaining conversation history",
+    )
+    company_code: Optional[str] = Field(
+        None, description="Company code to use the company's employee data"
+    )
+    subject: Optional[str] = Field(
+        None, description="Subject or topic for the conversation"
+    )
+    name: Optional[List[EmployeeInfo]] = Field(
+        None, description="List of employees with their names and optional user IDs"
     )
 
 
@@ -293,18 +307,16 @@ async def save_company_questions(request: CompanyQuestionsRequest):
 async def generate_coaching_feedback(request: CoachingFeedbackRequest):
     try:
         # Validate request
-        if not request.query or request.query.strip() == "":
+        if not request.message or request.message.strip() == "":
             raise HTTPException(status_code=400, detail="Coaching query is required")
 
         # Generate coaching feedback
         result = coaching_feedback_generator.generate_feedback(
-            query=request.query, session_id=request.session_id
+            query=request.message, session_id=request.session_id
         )
 
         return {
-            "query": request.query,
-            "session_id": request.session_id,
-            "feedback": result,
+            "response": result,
         }
 
     except Exception as e:
