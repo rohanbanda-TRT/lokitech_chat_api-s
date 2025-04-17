@@ -19,6 +19,15 @@ class GetDateBasedTimeSlotsInput(BaseModel):
     num_occurrences: int = Field(2, description="Number of future occurrences to generate for each day")
 
 
+class UpdateApplicantStatusInput(BaseModel):
+    """Input model for update_applicant_status tool"""
+    dsp_code: str = Field(..., description="The DSP short code")
+    applicant_id: int = Field(..., description="The applicant ID")
+    current_status: str = Field("INPROGRESS", description="Current status of the applicant")
+    new_status: str = Field(..., description="New status to set (PASSED or FAILED)")
+    responses: Dict[str, Any] = Field(default_factory=dict, description="Optional responses from the screening process")
+
+
 class DriverScreeningTools:
     """
     Tools for driver screening operations
@@ -63,52 +72,27 @@ class DriverScreeningTools:
             logger.error(f"Error retrieving applicant details: {e}")
             return json.dumps({"success": False, "message": f"Error: {str(e)}"})
 
-    def _update_applicant_status(self, input_str: str) -> str:
+    def _update_applicant_status(self, input_data: UpdateApplicantStatusInput) -> str:
         """
         Update the applicant status based on screening results
 
         Args:
-            input_str: JSON string containing the update information
+            input_data: UpdateApplicantStatusInput object containing update information
 
         Returns:
             Success or error message
         """
         try:
-            logger.info(f"Updating applicant status: {input_str}")
+            # Convert to dictionary for logging
+            input_dict = input_data.model_dump()
+            logger.info(f"Updating applicant status: {input_dict}")
 
-            # Parse input
-            input_data = json.loads(input_str)
-
-            # Extract required fields
-            dsp_code = input_data.get("dsp_code")
-            applicant_id = input_data.get("applicant_id")
-            current_status = input_data.get("current_status", "INPROGRESS")
-            new_status = input_data.get("new_status")  # Should be "PASSED" or "FAILED"
-
-            # Extract optional responses if available
-            responses = input_data.get("responses", {})
-
-            # Validate required fields
-            if not dsp_code:
-                return json.dumps(
-                    {"success": False, "message": "Missing required field: dsp_code"}
-                )
-
-            if not applicant_id:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "message": "Missing required field: applicant_id",
-                    }
-                )
-
-            if not new_status:
-                return json.dumps(
-                    {"success": False, "message": "Missing required field: new_status"}
-                )
-
-            # Prepare applicant data with responses only
-            applicant_data = {"responses": responses}
+            # Extract required fields from the input model
+            dsp_code = input_data.dsp_code
+            applicant_id = input_data.applicant_id
+            current_status = input_data.current_status
+            new_status = input_data.new_status
+            responses = input_data.responses
 
             # Update the applicant status
             status_updated = self.dsp_api_client.update_applicant_status(
@@ -116,7 +100,7 @@ class DriverScreeningTools:
                 applicant_id=applicant_id,
                 current_status=current_status,
                 new_status=new_status,
-                applicant_data=applicant_data,
+                applicant_data={"responses": responses},
             )
 
             if status_updated:
@@ -136,6 +120,77 @@ class DriverScreeningTools:
 
         except Exception as e:
             logger.error(f"Error updating applicant status: {e}")
+            return json.dumps({"success": False, "message": f"Error: {str(e)}"})
+
+    def update_applicant_status(self, input_str: str) -> str:
+        """
+        Update the applicant status based on screening results (string input version)
+
+        Args:
+            input_str: JSON string containing the update information
+
+        Returns:
+            Success or error message
+        """
+        try:
+            # Parse the input JSON string
+            logger.info(f"Received input string: {input_str}")
+            input_data = json.loads(input_str)
+            
+            # Create a Pydantic model from the parsed data
+            model_input = UpdateApplicantStatusInput(
+                dsp_code=input_data.get("dsp_code"),
+                applicant_id=input_data.get("applicant_id"),
+                current_status=input_data.get("current_status", "INPROGRESS"),
+                new_status=input_data.get("new_status"),
+                responses=input_data.get("responses", {})
+            )
+            
+            # Call the structured version of the method
+            return self._update_applicant_status(model_input)
+            
+        except Exception as e:
+            logger.error(f"Error in string version of update_applicant_status: {e}")
+            return json.dumps({"success": False, "message": f"Error: {str(e)}"})
+
+    def update_applicant_status_multi(
+        self, 
+        dsp_code: str, 
+        applicant_id: int, 
+        current_status: str, 
+        new_status: str, 
+        responses: dict
+    ) -> str:
+        """
+        Update the applicant status based on screening results (multi-argument version)
+
+        Args:
+            dsp_code: The DSP short code
+            applicant_id: The applicant ID
+            current_status: Current status of the applicant
+            new_status: New status to set (PASSED or FAILED)
+            responses: Optional responses from the screening process
+
+        Returns:
+            Success or error message
+        """
+        try:
+            logger.info(f"Updating applicant status with multi-args: {dsp_code}, {applicant_id}, {current_status}, {new_status}")
+            
+            # Create a Pydantic model from the arguments
+            model_input = UpdateApplicantStatusInput(
+                dsp_code=dsp_code,
+                applicant_id=applicant_id,
+                current_status=current_status,
+                new_status=new_status,
+                responses=responses
+            )
+            
+            # Call the structured version of the method
+            return self._update_applicant_status(model_input)
+            
+        except Exception as e:
+            logger.error(f"Error in multi-arg version of update_applicant_status: {e}")
             return json.dumps({"success": False, "message": f"Error: {str(e)}"})
 
     def _get_date_based_time_slots(self, input_data: GetDateBasedTimeSlotsInput) -> str:

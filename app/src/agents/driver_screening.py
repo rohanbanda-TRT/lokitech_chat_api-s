@@ -10,6 +10,7 @@ import json
 import time
 import re
 from typing import Annotated, TypedDict, Dict, Any, Optional, List
+from typing_extensions import Literal, get_type_hints
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -25,7 +26,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from dotenv import load_dotenv
 from ..managers.company_questions_factory import get_company_questions_manager
-from ..tools.driver_screening_tools import DriverScreeningTools, GetDateBasedTimeSlotsInput
+from ..tools.driver_screening_tools import DriverScreeningTools, GetDateBasedTimeSlotsInput, UpdateApplicantStatusInput
 from ..tools.dsp_api_client import DSPApiClient
 from ..prompts.driver_screening import (
     DRIVER_SCREENING_PROMPT_TEMPLATE,
@@ -103,7 +104,7 @@ class DriverScreeningAgent:
         # Set up tools using the standard Tool class
         self.tools = [
             StructuredTool.from_function(
-                func=self.screening_tools._update_applicant_status,
+                func=self.screening_tools.update_applicant_status_multi,
                 name="update_applicant_status",
                 description="Update the applicant status based on screening results (PASSED or FAILED)",
             ),
@@ -116,6 +117,14 @@ class DriverScreeningAgent:
 
         # Build the graph
         self.graph = self._create_graph()
+        
+        # Initialize caches
+        self.prompt_cache = {}
+        self.applicant_details_cache = {}
+        self.company_data_cache = {}
+        self.agent_cache = {}  # Cache for agent instances
+        self.executor_cache = {}  # Cache for agent executor instances
+        
         logger.info("DriverScreeningAgent initialized with ReAct agent")
 
     def _get_company_specific_questions_text(self, dsp_code: str) -> str:
@@ -128,33 +137,52 @@ class DriverScreeningAgent:
         Returns:
             Formatted string of company-specific questions
         """
-        result = self.questions_manager.get_questions(dsp_code)
-        
-        # Handle the new dictionary structure returned by the questions manager
-        if isinstance(result, dict):
-            questions = result.get("questions", [])
-        else:
-            # For backward compatibility with older implementations
-            questions = result
+        # Check if we have cached company questions for this DSP code
+        cache_key = f"company_questions_{dsp_code}"
+        if cache_key in self.company_data_cache:
+            logger.info(f"Using cached company questions for DSP code: {dsp_code}")
+            return self.company_data_cache[cache_key]
             
-        if not questions:
-            return "   - No company-specific questions defined. Skip this section."
+        try:
+            # Get company questions from the manager
+            company_questions = self.questions_manager.get_questions(dsp_code)
 
-        formatted_questions = []
-        for i, q in enumerate(questions, 1):
-            question_text = q["question_text"]
-            criteria = q.get("criteria", "No specific criteria defined")
+            if not company_questions or not company_questions.get("questions"):
+                logger.warning(f"No questions found for DSP code: {dsp_code}")
+                company_questions_text = "No company-specific questions are available at this time."
+            else:
+                # Format the questions for the prompt
+                questions_list = company_questions.get("questions", [])
+                company_questions_text = "Please ask the following company-specific questions:\n"
+                
+                # Log the structure of the first question to debug
+                if questions_list:
+                    logger.info(f"First question structure: {questions_list[0]}")
+                
+                for i, question in enumerate(questions_list, 1):
+                    # Check for different possible field names for question text
+                    question_text = ""
+                    if "question_text" in question:
+                        question_text = question.get("question_text", "")
+                    elif "question" in question:
+                        question_text = question.get("question", "")
+                    elif "text" in question:
+                        question_text = question.get("text", "")
+                    
+                    # Extract criteria
+                    criteria = question.get("criteria", "")
 
-            formatted_questions.append(f'   - Ask Question {i}: "{question_text}"')
-            formatted_questions.append(f'     * Evaluation criteria: "{criteria}"')
-        formatted_questions.append(
-            f"     * All questions are required. If the driver does not provide a clear answer, politely ask again."
-        )
-        formatted_questions.append(
-            f"     * Note: Do NOT mention the criteria to the driver. Use it only for internal evaluation."
-        )
+                    # Add the question to the formatted text
+                    company_questions_text += f"{i}. {question_text}\n"
+                    if criteria:
+                        company_questions_text += f"   Criteria: {criteria}\n"
 
-        return "\n".join(formatted_questions)
+            # Cache the formatted questions
+            self.company_data_cache[cache_key] = company_questions_text
+            return company_questions_text
+        except Exception as e:
+            logger.error(f"Error getting company questions: {e}")
+            return "No company-specific questions are available at this time."
 
     def _get_company_time_slots_and_contact_info(self, dsp_code: str) -> tuple:
         """
@@ -166,18 +194,30 @@ class DriverScreeningAgent:
         Returns:
             Tuple of (time_slots, contact_info) 
         """
-        result = self.questions_manager.get_questions(dsp_code)
-        
-        # Default values
-        time_slots = []
-        contact_info = "our support team"
-        
-        # Extract time slots and contact info if available
-        if isinstance(result, dict):
-            time_slots = result.get("time_slots", [])
-            contact_info = result.get("contact_info", "our support team")
+        # Check if we have cached time slots and contact info for this DSP code
+        cache_key = f"company_info_{dsp_code}"
+        if cache_key in self.company_data_cache:
+            logger.info(f"Using cached time slots and contact info for DSP code: {dsp_code}")
+            return self.company_data_cache[cache_key]
             
-        return time_slots, contact_info
+        try:
+            # Get company questions from the manager
+            company_questions = self.questions_manager.get_questions(dsp_code)
+
+            if not company_questions:
+                logger.warning(f"No company data found for DSP code: {dsp_code}")
+                return [], ""
+
+            # Extract time slots and contact info
+            time_slots = company_questions.get("time_slots", [])
+            contact_info = company_questions.get("contact_info", "")
+
+            # Cache the results
+            self.company_data_cache[cache_key] = (time_slots, contact_info)
+            return time_slots, contact_info
+        except Exception as e:
+            logger.error(f"Error getting company time slots and contact info: {e}")
+            return [], ""
 
     def _get_date_based_time_slots(self, time_slots: List[str], num_occurrences: int = 2) -> List[str]:
         """
@@ -190,61 +230,77 @@ class DriverScreeningAgent:
         Returns:
             List of date-based time slots
         """
+        # Create a cache key based on the time slots and occurrences
+        cache_key = f"date_slots_{'_'.join(time_slots)}_{num_occurrences}"
+        if cache_key in self.company_data_cache:
+            logger.info("Using cached date-based time slots")
+            return self.company_data_cache[cache_key]
+            
         try:
-            # Create input for the structured tool
+            if not time_slots:
+                return []
+
+            # Create the input object for the tool
             input_data = GetDateBasedTimeSlotsInput(
                 time_slots=time_slots,
                 num_occurrences=num_occurrences
             )
+
+            # Call the tool
+            result = self.screening_tools._get_date_based_time_slots(input_data)
             
-            # Call the tool function directly
-            result_json = self.screening_tools._get_date_based_time_slots(input_data)
-            result = json.loads(result_json)
+            # Parse the result
+            result_data = json.loads(result)
             
-            if result.get("success", False):
-                return result.get("date_based_slots", [])
+            if result_data.get("success"):
+                date_based_slots = result_data.get("date_based_slots", [])
+                # Cache the result
+                self.company_data_cache[cache_key] = date_based_slots
+                return date_based_slots
             else:
-                logger.error(f"Error getting date-based time slots: {result.get('message')}")
+                logger.warning(f"Failed to get date-based time slots: {result_data.get('message')}")
                 return []
-                
         except Exception as e:
-            logger.error(f"Error in _get_date_based_time_slots: {e}")
+            logger.error(f"Error getting date-based time slots: {e}")
             return []
 
     def _create_prompt(
-        self, dsp_code: str = None, applicant_details: dict = None
-    ) -> ChatPromptTemplate:
+            self, dsp_code: str = None, applicant_details: dict = None, session_id: str = None
+        ) -> ChatPromptTemplate:
         """
         Create a prompt with company-specific questions if available
 
         Args:
             dsp_code: Optional DSP code to get company-specific questions
             applicant_details: Optional applicant details to personalize the greeting
+            session_id: Optional session ID for caching
 
         Returns:
             Formatted prompt template
         """
-        # Format the prompt with company-specific questions if available
-        company_questions_text = (
-            "   - No company-specific questions defined. Skip this section."
-        )
+        # If we have a session ID and a cached prompt, return it
+        if session_id and session_id in self.prompt_cache:
+            logger.info(f"Using cached prompt for session: {session_id}")
+            return self.prompt_cache[session_id]
+            
+        # Initialize variables
+        company_questions_text = "No company-specific questions are available at this time."
+        time_slots_text = ""
+        contact_info_text = ""
+
+        # Get company-specific questions if dsp_code is provided
         if dsp_code:
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
             
-        # Get time slots and contact info
-        time_slots_text = "No specific time slots are available."
-        contact_info_text = "No specific contact information available."
-        
-        if dsp_code:
+            # Get time slots and contact info
             time_slots, contact_info = self._get_company_time_slots_and_contact_info(dsp_code)
             
             # Format time slots if available
-            if time_slots and len(time_slots) > 0:
-                # Convert day-based time slots to date-based time slots
-                # Explicitly set num_occurrences to 2
-                date_based_slots = self._get_date_based_time_slots(time_slots, num_occurrences=2)
+            if time_slots:
+                # Try to convert day-based time slots to date-based time slots
+                date_based_slots = self._get_date_based_time_slots(time_slots)
                 
-                if date_based_slots and len(date_based_slots) > 0:
+                if date_based_slots:
                     time_slots_text = "Available interview time slots:\n"
                     for i, slot in enumerate(date_based_slots, 1):
                         time_slots_text += f"   {i}. {slot}\n"
@@ -308,7 +364,7 @@ class DriverScreeningAgent:
                 "{{company_specific_questions}}", company_questions_text
             )
 
-        return ChatPromptTemplate.from_messages(
+        prompt_template = ChatPromptTemplate.from_messages(
             [
                 ("system", prompt_text),
                 MessagesPlaceholder(variable_name="chat_history"),
@@ -316,6 +372,16 @@ class DriverScreeningAgent:
                 MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
+        
+        # Cache the prompt if we have a session ID
+        if session_id:
+            self.prompt_cache[session_id] = prompt_template
+            
+            # Also cache the applicant details for this session
+            if applicant_details:
+                self.applicant_details_cache[session_id] = applicant_details
+                
+        return prompt_template
 
     def _update_applicant_status(
         self, dsp_code: str, applicant_name: str, applicant_details: dict
@@ -339,19 +405,14 @@ class DriverScreeningAgent:
                 # Get the required parameters from applicant_details
                 applicant_id = applicant_details.get("applicantID")
 
-                # Create the JSON input string that the tool expects
-                input_data = {
-                    "dsp_code": dsp_code,
-                    "applicant_id": applicant_id,
-                    "current_status": current_status,
-                    "new_status": "INPROGRESS",
-                }
-
-                # Convert to JSON string
-                input_str = json.dumps(input_data)
-
-                # Call the API to update the status
-                result = self.screening_tools._update_applicant_status(input_str)
+                # Call the API to update the status using the multi-argument tool
+                result = self.screening_tools.update_applicant_status_multi(
+                    dsp_code=dsp_code,
+                    applicant_id=applicant_id,
+                    current_status=current_status,
+                    new_status="INPROGRESS",
+                    responses={}
+                )
 
                 # Log the result
                 logger.info(f"Status update result: {result}")
@@ -403,14 +464,36 @@ class DriverScreeningAgent:
                     user_input = "START_GREETING"
                     logger.info("Using special greeting trigger for first message")
 
-            # Create the prompt with company-specific questions and applicant details if available
-            prompt = self._create_prompt(dsp_code, applicant_details)
+            # Check if we have a cached agent and executor for this session
+            agent_executor = None
+            if session_id and session_id in self.executor_cache:
+                logger.info(f"Using cached agent executor for session: {session_id}")
+                agent_executor = self.executor_cache[session_id]
+            else:
+                # Create the prompt with company-specific questions and applicant details if available
+                # Pass the session_id to enable caching
+                prompt = self._create_prompt(dsp_code, applicant_details, session_id)
 
-            # Create the agent using the prompt
-            agent = create_openai_tools_agent(self.llm, self.tools, prompt)
+                # Check if we have a cached agent for this session
+                if session_id and session_id in self.agent_cache:
+                    logger.info(f"Using cached agent for session: {session_id}")
+                    agent = self.agent_cache[session_id]
+                else:
+                    # Create the agent using the prompt
+                    agent = create_openai_tools_agent(self.llm, self.tools, prompt)
+                    
+                    # Cache the agent if we have a session ID
+                    if session_id:
+                        self.agent_cache[session_id] = agent
+                        logger.info(f"Cached agent for session: {session_id}")
 
-            # Create the agent executor
-            agent_executor = AgentExecutor(agent=agent, tools=self.tools)
+                # Create the agent executor
+                agent_executor = AgentExecutor(agent=agent, tools=self.tools)
+                
+                # Cache the executor if we have a session ID
+                if session_id:
+                    self.executor_cache[session_id] = agent_executor
+                    logger.info(f"Cached agent executor for session: {session_id}")
 
             # Extract conversation history
             history = []
@@ -424,9 +507,12 @@ class DriverScreeningAgent:
 
             try:
                 # Call the agent with history
+                start_time = time.time()
                 result = agent_executor.invoke(
                     {"input": user_input, "chat_history": history}
                 )
+                end_time = time.time()
+                logger.info(f"Agent execution time: {end_time - start_time:.2f} seconds")
 
                 # Return the response as an AI message
                 return {"messages": [AIMessage(content=result["output"])]}
@@ -450,17 +536,17 @@ class DriverScreeningAgent:
         graph_builder.add_edge(START, "agent")
         graph_builder.add_edge("agent", END)
 
-        # Compile the graph with the memory saver
+        # Compile the graph with the memory saver to maintain conversation history
         return graph_builder.compile(checkpointer=self.memory)
 
     def process_message(
-        self,
-        user_input: str,
-        session_id: str = None,
-        dsp_code: str = None,
-        station_code: str = None,
-        applicant_id: int = None,
-    ) -> str:
+            self,
+            user_input: str,
+            session_id: str = None,
+            dsp_code: str = None,
+            station_code: str = None,
+            applicant_id: int = None,
+        ) -> str:
         """
         Process a message using the driver screening agent.
 
@@ -474,154 +560,177 @@ class DriverScreeningAgent:
         Returns:
             The generated response
         """
-        # Create a unique session ID if not provided
-        if not session_id:
-            timestamp = int(time.time())
-            session_id = f"SESSION-{timestamp}"
-            logger.info(f"Generated new session_id: {session_id}")
-
-        # Create a unique session ID that includes the dsp_code to ensure
-        # we get the right prompt with company-specific questions
-        unique_session_id = f"{session_id}_{dsp_code}" if dsp_code else session_id
-
-        # Check if this is a new session by trying to get the checkpoint
         try:
-            # Try to get the checkpoint for this session ID
-            checkpoint = self.memory.get(unique_session_id)
-            is_new_session = checkpoint is None
-        except:
-            # If there's an error, assume it's a new session
-            is_new_session = True
-
-        # Get applicant details if dsp_code is provided and this is the first message
-        applicant_details = None
-
-        if dsp_code and is_new_session:
-            logger.info(
-                f"New session detected. Fetching applicant details for DSP code: {dsp_code}, "
-                f"station_code: {station_code}, applicant_id: {applicant_id}"
-            )
-
-            # Use the DSP API client directly to pass the new parameters
-            api_client = DSPApiClient()
-
-            # Use provided station_code and applicant_id if available, otherwise use defaults
-            station_code_to_use = station_code if station_code else "DJE1"
-            applicant_id_to_use = applicant_id if applicant_id is not None else 57
-
-            applicant_details_obj = api_client.get_applicant_details(
-                dsp_code=dsp_code,
-                station_code=station_code_to_use,
-                applicant_id=applicant_id_to_use,
-            )
-
-            if applicant_details_obj:
-                applicant_details = applicant_details_obj.model_dump()
-
-                # Check if required fields (name, mobile) are present
-                first_name = applicant_details.get("firstName", "").strip()
-                last_name = applicant_details.get("lastName", "").strip()
-                mobile_number = applicant_details.get("mobileNumber", "").strip()
-                applicant_status = applicant_details.get("applicantStatus", "").strip()
-
-                # If any of the required fields are missing, stop the screening
-                if (
-                    not first_name
-                    or not last_name
-                    or not mobile_number
-                ):
-                    logger.warning(
-                        f"Missing required applicant details. Name: '{first_name} {last_name}', "
-                        f"Mobile: '{mobile_number}', Status: '{applicant_status}'"
-                    )
-                    
-                    # Get company contact info if available
-                    _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
-                    contact_info = contact_info_text if contact_info_text else "our support team"
-                    
-                    return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
-
-                # Check if the applicant status is not SENT or INPROGRESS, which means screening is already done
-                if applicant_status != "SENT" and applicant_status != "INPROGRESS" and applicant_status != "":
-                    logger.warning(
-                        f"Applicant with ID {applicant_id_to_use} has already been screened. Current status: {applicant_status}"
-                    )
-                    
-                    # Get company contact info if available
-                    _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
-                    contact_info = contact_info_text if contact_info_text else "our support team"
-                    
-                    return f"Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
-
-                # Format the full name from first and last name
-                applicant_name = f"{first_name} {last_name}".strip()
-                logger.info(
-                    f"Found applicant name: {applicant_name}, mobile: {mobile_number}, status: {applicant_status}"
-                )
-
-                # Update the applicant status to INPROGRESS
-                self._update_applicant_status(
-                    dsp_code, applicant_name, applicant_details
-                )
+            # Generate a unique session ID if not provided
+            if not session_id:
+                session_id = str(uuid.uuid4())
+                is_new_session = True
+                logger.info(f"Created new session with ID: {session_id}")
             else:
-                logger.warning(
-                    f"Could not retrieve applicant details for DSP code: {dsp_code}, "
-                    f"station_code: {station_code_to_use}, applicant_id: {applicant_id_to_use}"
+                # Check if this is a new session (not in our cache)
+                is_new_session = session_id not in self.prompt_cache
+                logger.info(
+                    f"Using existing session with ID: {session_id}, is_new_session: {is_new_session}"
                 )
 
-                # Get company contact info if available
-                _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
-                contact_info = contact_info_text if contact_info_text else "our support team"
-                
-                # Return a polite message to end the conversation if applicant details are not found
-                return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+            # Get a unique ID for this session's checkpointer
+            unique_session_id = f"driver_screening_{session_id}"
 
-        # Create a human message
-        human_message = HumanMessage(content=user_input)
+            # Check if we need to fetch applicant details
+            applicant_details = None
+            if is_new_session:
+                # Only fetch applicant details for new sessions or if not in cache
+                if dsp_code and station_code and applicant_id is not None:
+                    try:
+                        # Get the applicant details from the API
+                        logger.info(
+                            f"Fetching applicant details for DSP code: {dsp_code}, "
+                            f"station_code: {station_code}, applicant_id: {applicant_id}"
+                        )
 
-        # Set up the config for this session
-        config = {"configurable": {"thread_id": unique_session_id}}
+                        # Use the actual station code and applicant ID if provided
+                        station_code_to_use = station_code
+                        applicant_id_to_use = applicant_id
 
-        # Prepare the initial state
-        initial_state = {
-            "messages": [human_message],
-            "session_id": session_id,
-            "is_new_session": is_new_session,
-        }
+                        # Get the applicant details
+                        applicant_details_obj = self.screening_tools.dsp_api_client.get_applicant_details(
+                            dsp_code=dsp_code,
+                            station_code=station_code_to_use,
+                            applicant_id=applicant_id_to_use,
+                        )
 
-        if dsp_code:
-            initial_state["dsp_code"] = dsp_code
-            logger.info(f"Using dsp_code: {dsp_code}")
+                        # Convert the ApplicantDetails object to a dictionary if it's not None
+                        if applicant_details_obj:
+                            # Use model_dump() to convert Pydantic model to dictionary
+                            applicant_details = applicant_details_obj.model_dump()
+                            
+                            # Extract key fields
+                            first_name = applicant_details.get("firstName", "").strip()
+                            last_name = applicant_details.get("lastName", "").strip()
+                            mobile_number = applicant_details.get("mobileNumber", "").strip()
+                            applicant_status = applicant_details.get("applicantStatus", "").strip()
 
-        if station_code:
-            initial_state["station_code"] = station_code
-            logger.info(f"Using station_code: {station_code}")
+                            # Check if we have the required fields
+                            if not (first_name and last_name and mobile_number):
+                                logger.warning(
+                                    f"Missing required fields in applicant details: "
+                                    f"first_name={first_name}, last_name={last_name}, mobile_number={mobile_number}"
+                                )
 
-        if applicant_id is not None:
-            initial_state["applicant_id"] = applicant_id
-            logger.info(f"Using applicant_id: {applicant_id}")
+                                # Get company contact info if available
+                                _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                                contact_info = contact_info_text if contact_info_text else "our support team"
+                                
+                                return f"Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
 
-        if applicant_details:
-            initial_state["applicant_details"] = applicant_details
-            logger.info(
-                f"Using applicant details for: {applicant_details.get('firstName', '')} {applicant_details.get('lastName', '')}"
+                            # Format the full name from first and last name
+                            applicant_name = f"{first_name} {last_name}".strip()
+                            logger.info(
+                                f"Found applicant name: {applicant_name}, mobile: {mobile_number}, status: {applicant_status}"
+                            )
+
+                            # Update the applicant status to INPROGRESS
+                            self._update_applicant_status(
+                                dsp_code, applicant_name, applicant_details
+                            )
+                        else:
+                            logger.warning(
+                                f"Could not retrieve applicant details for DSP code: {dsp_code}, "
+                                f"station_code: {station_code_to_use}, applicant_id: {applicant_id_to_use}"
+                            )
+
+                            # Get company contact info if available
+                            _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                            contact_info = contact_info_text if contact_info_text else "our support team"
+                            
+                            # Return a polite message to end the conversation if applicant details are not found
+                            return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+
+                    except Exception as e:
+                        logger.error(f"Error retrieving applicant details: {e}")
+                        # Continue without applicant details
+            else:
+                # For existing sessions, use cached applicant details if available
+                if session_id in self.applicant_details_cache:
+                    applicant_details = self.applicant_details_cache[session_id]
+                    logger.info(f"Using cached applicant details for session: {session_id}")
+
+            # Create a human message
+            human_message = HumanMessage(content=user_input)
+
+            # Set up the config for this session
+            config = {"configurable": {"thread_id": unique_session_id}}
+
+            # Prepare the initial state
+            initial_state = {
+                "messages": [human_message],
+                "session_id": session_id,
+                "is_new_session": is_new_session,
+            }
+
+            if dsp_code:
+                initial_state["dsp_code"] = dsp_code
+                logger.info(f"Using dsp_code: {dsp_code}")
+
+            if station_code:
+                initial_state["station_code"] = station_code
+                logger.info(f"Using station_code: {station_code}")
+
+            if applicant_id is not None:
+                initial_state["applicant_id"] = applicant_id
+                logger.info(f"Using applicant_id: {applicant_id}")
+
+            if applicant_details:
+                initial_state["applicant_details"] = applicant_details
+                logger.info(
+                    f"Using applicant details for: {applicant_details.get('firstName', '')} {applicant_details.get('lastName', '')}"
+                )
+
+            # Invoke the graph with the message
+            result = self.graph.invoke(
+                initial_state,
+                config=config,
             )
 
-        # Invoke the graph with the message
-        result = self.graph.invoke(
-            initial_state,
-            config=config,
-        )
+            # Extract and return the response content
+            if result and "messages" in result and len(result["messages"]) > 0:
+                # Get the last message (the response)
+                last_message = result["messages"][-1]
+                if isinstance(last_message, AIMessage):
+                    return last_message.content
 
-        # Extract and return the response content
-        if result and "messages" in result and len(result["messages"]) > 0:
-            # Get the last message (the response)
-            last_message = result["messages"][-1]
-            if isinstance(last_message, AIMessage):
-                return last_message.content
+            logger.info("Message processed successfully")
+            return "Sorry, I couldn't generate a response."
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+            return "I apologize, but I encountered an error while processing your message. Please try again later."
 
-        logger.info("Message processed successfully")
-        return "Sorry, I couldn't generate a response."
+    def clear_cache(self, session_id: str = None):
+        """
+        Clear the prompt cache for a specific session or all sessions.
+        
+        Args:
+            session_id: Optional session ID to clear cache for. If None, clears all caches.
+        """
+        if session_id:
+            # Clear cache for a specific session
+            if session_id in self.prompt_cache:
+                del self.prompt_cache[session_id]
+            if session_id in self.applicant_details_cache:
+                del self.applicant_details_cache[session_id]
+            if session_id in self.agent_cache:
+                del self.agent_cache[session_id]
+            if session_id in self.executor_cache:
+                del self.executor_cache[session_id]
+            logger.info(f"Cleared cache for session: {session_id}")
+        else:
+            # Clear all caches
+            self.prompt_cache.clear()
+            self.applicant_details_cache.clear()
+            self.company_data_cache.clear()
+            self.agent_cache.clear()
+            self.executor_cache.clear()
+            logger.info("Cleared all caches")
 
 
 def main():
