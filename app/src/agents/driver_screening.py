@@ -9,7 +9,7 @@ import uuid
 import json
 import time
 import re
-from typing import Annotated, TypedDict, Dict, Any, Optional
+from typing import Annotated, TypedDict, Dict, Any, Optional, List
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -25,7 +25,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from dotenv import load_dotenv
 from ..managers.company_questions_factory import get_company_questions_manager
-from ..tools.driver_screening_tools import DriverScreeningTools
+from ..tools.driver_screening_tools import DriverScreeningTools, GetDateBasedTimeSlotsInput
 from ..tools.dsp_api_client import DSPApiClient
 from ..prompts.driver_screening import (
     DRIVER_SCREENING_PROMPT_TEMPLATE,
@@ -107,6 +107,11 @@ class DriverScreeningAgent:
                 name="update_applicant_status",
                 description="Update the applicant status based on screening results (PASSED or FAILED)",
             ),
+            StructuredTool.from_function(
+                func=self.screening_tools._get_date_based_time_slots,
+                name="get_date_based_time_slots",
+                description="Convert day-based time slots to actual dates for the next N occurrences",
+            ),
         ]
 
         # Build the graph
@@ -159,7 +164,7 @@ class DriverScreeningAgent:
             dsp_code: The unique identifier for the company
             
         Returns:
-            Tuple of (time_slots, contact_info)
+            Tuple of (time_slots, contact_info) 
         """
         result = self.questions_manager.get_questions(dsp_code)
         
@@ -173,6 +178,38 @@ class DriverScreeningAgent:
             contact_info = result.get("contact_info", "our support team")
             
         return time_slots, contact_info
+
+    def _get_date_based_time_slots(self, time_slots: List[str], num_occurrences: int = 2) -> List[str]:
+        """
+        Convert day-based time slots to date-based time slots using the structured tool
+        
+        Args:
+            time_slots: List of time slots in format 'Day Time Range'
+            num_occurrences: Number of future occurrences to generate for each day
+            
+        Returns:
+            List of date-based time slots
+        """
+        try:
+            # Create input for the structured tool
+            input_data = GetDateBasedTimeSlotsInput(
+                time_slots=time_slots,
+                num_occurrences=num_occurrences
+            )
+            
+            # Call the tool function directly
+            result_json = self.screening_tools._get_date_based_time_slots(input_data)
+            result = json.loads(result_json)
+            
+            if result.get("success", False):
+                return result.get("date_based_slots", [])
+            else:
+                logger.error(f"Error getting date-based time slots: {result.get('message')}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error in _get_date_based_time_slots: {e}")
+            return []
 
     def _create_prompt(
         self, dsp_code: str = None, applicant_details: dict = None
@@ -203,9 +240,19 @@ class DriverScreeningAgent:
             
             # Format time slots if available
             if time_slots and len(time_slots) > 0:
-                time_slots_text = "Available interview time slots:\n"
-                for i, slot in enumerate(time_slots, 1):
-                    time_slots_text += f"   {i}. {slot}\n"
+                # Convert day-based time slots to date-based time slots
+                # Explicitly set num_occurrences to 2
+                date_based_slots = self._get_date_based_time_slots(time_slots, num_occurrences=2)
+                
+                if date_based_slots and len(date_based_slots) > 0:
+                    time_slots_text = "Available interview time slots:\n"
+                    for i, slot in enumerate(date_based_slots, 1):
+                        time_slots_text += f"   {i}. {slot}\n"
+                else:
+                    # Fallback to original time slots if conversion failed
+                    time_slots_text = "Available interview time slots:\n"
+                    for i, slot in enumerate(time_slots, 1):
+                        time_slots_text += f"   {i}. {slot}\n"
             
             # Format contact info if available
             if contact_info:
