@@ -86,6 +86,8 @@ class CoachingFeedbackGenerator:
         self.graph = self._create_graph()
         logger.info("Coaching Feedback Generator initialized with LangGraph")
 
+        self.coaching_details_data = None
+
     def _format_employee_list(self, driver_list: List[Dict[str, str]]) -> str:
         """
         Format the list of employees from the provided driver list.
@@ -127,28 +129,52 @@ class CoachingFeedbackGenerator:
 
     def _list_severity_categories(self, employee: str) -> str:
         """
-        List all severity categories available for a specific employee.
+        List all severity categories available for a specific employee from coaching details.
         
-        This is a placeholder since we don't have predefined categories anymore.
-
         Args:
             employee: Employee name (may include ID information in parentheses)
 
         Returns:
             Formatted string with severity categories
         """
-        # Extract just the name part if the input includes ID
+        # Extract employee name and ID from the input
         employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        logger.info(f"Listing severity categories for employee: {employee_name}")
+        employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
         
-        # Since we don't have predefined categories from files anymore,
-        # we'll return a standard set of categories
-        categories = [
-            "Minor",
-            "Moderate", 
-            "Major",
-            "Critical"
-        ]
+        logger.info(f"Listing severity categories for employee: {employee_name} (ID: {employee_id})")
+        
+        categories = set()
+        if self.coaching_details_data:
+            try:
+                # Filter coaching details for this specific employee
+                employee_details = [
+                    detail for detail in self.coaching_details_data 
+                    if (
+                        detail.get("driverName", "").strip() == employee_name.strip() 
+                        or (employee_id and str(detail.get("userID", "")) == str(employee_id))
+                    )
+                ]
+                
+                logger.info(f"Found {len(employee_details)} coaching records for {employee_name}")
+                
+                # Extract categories from the coachingDetailsData
+                for detail in employee_details:
+                    if "coachingCategoryReasonText" in detail:
+                        reasons = detail["coachingCategoryReasonText"].split(",")
+                        categories.update(reason.strip() for reason in reasons)
+                    if "subject" in detail:
+                        categories.add(detail["subject"])
+                
+                categories = sorted(list(categories))
+                logger.info(f"Extracted categories: {categories}")
+                
+            except Exception as e:
+                logger.error(f"Error processing coaching details: {e}")
+        
+        # Use default categories if none found
+        if not categories:
+            categories = ["Performance", "Attendance", "Safety", "Other"]
+            logger.info("Using default categories as no categories found in coaching details")
         
         formatted_categories = "\n".join(
             [f"{i+1}. **{category}**" for i, category in enumerate(categories)]
@@ -156,24 +182,66 @@ class CoachingFeedbackGenerator:
         
         return f"Severity categories for coaching feedback for {employee_name}:\n{formatted_categories}"
 
-    def _get_employee_coaching(self, employee: str, severity: str = None) -> str:
+    def _get_employee_coaching(self, employee: str, severity: str) -> str:
         """
         Get coaching history for a specific employee and severity category.
-        
-        This is now a placeholder since we don't load historical data from files.
 
         Args:
             employee: Employee name (may include ID information in parentheses)
             severity: Optional severity category to filter by
 
         Returns:
-            Formatted coaching history for the employee
+            JSON string containing matching coaching records
         """
-        # Extract just the name part if the input includes ID
+        # Extract employee name and ID from the input
         employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        logger.info(f"Getting coaching history for employee: {employee_name}, severity: {severity}")
+        employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
         
-        return f"No historical coaching data is available for {employee_name}. Please provide coaching feedback based on the current situation described in the query."
+        logger.info(f"Getting coaching history for employee: {employee_name} (ID: {employee_id}), severity: {severity}")
+        
+        matching_records = []
+        if self.coaching_details_data:
+            try:
+                # Filter records by employee and severity
+                for detail in self.coaching_details_data:
+                    # Match employee by name or ID
+                    is_employee_match = (
+                        detail.get("driverName", "").strip() == employee_name.strip()
+                        or (employee_id and str(detail.get("userID", "")) == str(employee_id))
+                    )
+                    
+                    # Match severity with coachingCategoryReasonText
+                    coaching_category = detail.get("coachingCategoryReasonText", "")
+                    categories = [cat.strip() for cat in coaching_category.split(",")]
+                    is_severity_match = (
+                        severity is None 
+                        or any(severity.strip().lower() == cat.lower() for cat in categories)
+                    )
+                    
+                    if is_employee_match and is_severity_match:
+                        record = {
+                            "driverName": detail.get("driverName", ""),
+                            "coachingDate": detail.get("coachingDate", ""),
+                            "coachingCategoryReasonText": coaching_category,
+                            "pip": detail.get("pip", ""),
+                            "coachingDetails": detail.get("coachingDetails", ""),
+                            "coachingStatus": detail.get("coachingStatus", "")
+                        }
+                        matching_records.append(record)
+                        logger.info(f"Added matching record for date: {detail.get('coachingDate', '')}")
+                
+                logger.info(f"Found {len(matching_records)} matching coaching records")
+                
+                # Sort records by date (newest first)
+                matching_records.sort(key=lambda x: x["coachingDate"], reverse=True)
+                
+                if matching_records:
+                    return json.dumps(matching_records, indent=2)
+                
+            except Exception as e:
+                logger.error(f"Error processing coaching history: {e}")
+        
+        return json.dumps([])
 
     def _create_graph(self) -> StateGraph:
         """
@@ -245,6 +313,9 @@ class CoachingFeedbackGenerator:
             Structured coaching feedback
         """
         try:
+            # Store coaching details data for use in other methods
+            self.coaching_details_data = coaching_details_data
+
             logger.info(f"Generating feedback for query: {query}")
 
             # Generate a unique session ID if not provided
@@ -300,7 +371,7 @@ class CoachingFeedbackGenerator:
             self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
             
             # Create the agent executor
-            self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools)
+            self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools,verbose=True)
 
             # Create a human message
             human_message = HumanMessage(content=query)
