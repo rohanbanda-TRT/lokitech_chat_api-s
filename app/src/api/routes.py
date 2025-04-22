@@ -8,7 +8,8 @@ from typing import Optional, List, Dict
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..models.question_models import Question
 import logging
-import os
+import re
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +21,9 @@ company_admin_agent = CompanyAdminAgent(settings.OPENAI_API_KEY)
 performance_analyzer = PerformanceAnalyzerAgent(settings.OPENAI_API_KEY)
 
 # Initialize coaching feedback generator
-# Prioritize the combined JSON file
-coaching_data_path = os.path.join(
-    os.getcwd(), "json_output", "combined_coaching_history.json"
-)
-if not os.path.exists(coaching_data_path):
-    coaching_data_path = os.path.join(os.getcwd(), "coaching_history.json")
-    if not os.path.exists(coaching_data_path):
-        coaching_data_path = os.path.join(os.getcwd(), "Coaching Details.xlsx")
-
-logger.info(f"Loading coaching data from: {coaching_data_path}")
+logger.info("Initializing coaching feedback generator")
 coaching_feedback_generator = CoachingFeedbackGenerator(
-    settings.OPENAI_API_KEY, coaching_data_path
+    settings.OPENAI_API_KEY
 )
 
 
@@ -92,28 +84,36 @@ class CompanyQuestionsRequest(BaseModel):
 
 
 class EmployeeInfo(BaseModel):
-    name: str
-    user_id: Optional[str] = None
+    userID: Optional[str] = None
+    driverName: str
 
 
 class CoachingFeedbackRequest(BaseModel):
     message: str = Field(
         ...,
-        min_length=2,
+        # min_length=2,
         description="Coaching query (e.g., 'Moises was cited for a speeding violation while operating a company vehicle.')",
     )
     session_id: Optional[str] = Field(
         None,
         description="Optional session identifier for maintaining conversation history",
     )
-    company_code: Optional[str] = Field(
-        None, description="Company code to use the company's employee data"
+    name: str = Field(
+        ...,
+        min_length=2,
+        description="Name of the user",
+    )
+    company: Optional[str] = Field(
+        None, description="Company name of the user"
     )
     subject: Optional[str] = Field(
         None, description="Subject or topic for the conversation"
     )
-    name: Optional[List[EmployeeInfo]] = Field(
+    driver_list: Optional[List[EmployeeInfo]] = Field(
         None, description="List of employees with their names and optional user IDs"
+    )
+    coachingDetailsData: Optional[List[Dict]] = Field(
+        None, description="Optional coaching details data containing coaching history and other relevant information"
     )
 
 
@@ -306,18 +306,59 @@ async def save_company_questions(request: CompanyQuestionsRequest):
 )
 async def generate_coaching_feedback(request: CoachingFeedbackRequest):
     try:
-        # Validate request
-        if not request.message or request.message.strip() == "":
-            raise HTTPException(status_code=400, detail="Coaching query is required")
+        # Log the request details
+        logger.info(f"Coaching feedback request - message: {request.message}")
+        logger.info(f"Coaching feedback request - driver_list: {request.driver_list}")
+        
+        # Handle empty message
+        message = request.message
+        if not message or message.strip() == "":
+            if request.driver_list and len(request.driver_list) > 0:
+                # Convert driver list to a string representation
+                driver_info = []
+                for driver in request.driver_list:
+                    driver_info.append(f"{driver.driverName} (ID: {driver.userID})")
+                
+                drivers_str = ", ".join(driver_info)
+                message = f"Start [Available drivers: {drivers_str}]"
+                logger.info(f"Empty message detected, using default message with driver list: {message}")
+            else:
+                message = "Start"
+                logger.info("Empty message detected, using default 'Start' message")
 
         # Generate coaching feedback
         result = coaching_feedback_generator.generate_feedback(
-            query=request.message, session_id=request.session_id
+            query=message, 
+            session_id=request.session_id,
+            driver_list=request.driver_list,
+            coaching_details_data=request.coachingDetailsData
         )
 
-        return {
-            "response": result,
-        }
+        # Check if the response contains JSON with driver ID in triple backticks
+        response_data = {"response": result}
+        
+        # Extract driver ID if present in triple backticks
+        # Look for content between triple backticks
+        backtick_pattern = r"```(?:\w*\n)?(.*?)```"
+        match = re.search(backtick_pattern, result, re.DOTALL)
+        
+        if match:
+            try:
+                # Try to parse the content as JSON
+                json_str = match.group(1).strip()
+                json_data = json.loads(json_str)
+                
+                # Check if it contains employee_id or driverId
+                driver_id = json_data.get("employee_id") or json_data.get("driverId")
+                if driver_id:
+                    response_data["driverId"] = driver_id
+                    logger.info(f"Extracted driver ID: {driver_id}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse JSON from response: {e}")
+            except Exception as e:
+                logger.warning(f"Error extracting driver ID: {e}")
+
+        return response_data
 
     except Exception as e:
         logger.error(f"Error generating coaching feedback: {str(e)}")
