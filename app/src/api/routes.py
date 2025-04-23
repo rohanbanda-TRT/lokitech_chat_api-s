@@ -333,12 +333,12 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
             coaching_details_data=request.coachingDetailsData
         )
 
-        response_data = {"response": result}
+        # Initialize response data
+        response_data = {}
         
-        # Extract JSON content from response if present
+        # Extract JSON if present
         backtick_pattern = r"```(?:\w*\n)?(.*?)```"
         match = re.search(backtick_pattern, result, re.DOTALL)
-        
         if match:
             try:
                 json_str = match.group(1).strip()
@@ -360,6 +360,10 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
                 logger.warning(f"Failed to parse JSON from response: {e}")
             except Exception as e:
                 logger.warning(f"Error extracting data from response: {e}")
+
+        # Remove the JSON content from response after extraction
+        clean_result = re.sub(r"```[\s\S]*?```", "", result).strip()
+        response_data["response"] = clean_result
 
         return response_data
 

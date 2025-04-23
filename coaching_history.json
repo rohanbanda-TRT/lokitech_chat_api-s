@@ -313,8 +313,8 @@
     "Category": 1633,
     "Subcategory": "DA Scorecard",
     "Severity": "CDF Score",
-    "Statement_of_Problem": NaN,
-    "Prior_Discussion": NaN,
+    "Statement_of_Problem": null,
+    "Prior_Discussion": null,
     "Corrective_Action": "CDF DPMO is  2326 for 13-2025PDF",
     "Uploaded_Pictures": "-"
   }
