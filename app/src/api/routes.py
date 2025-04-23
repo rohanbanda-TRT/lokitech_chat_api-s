@@ -314,7 +314,6 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
         message = request.message
         if not message or message.strip() == "":
             if request.driver_list and len(request.driver_list) > 0:
-                # Convert driver list to a string representation
                 driver_info = []
                 for driver in request.driver_list:
                     driver_info.append(f"{driver.driverName} (ID: {driver.userID})")
@@ -334,29 +333,33 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
             coaching_details_data=request.coachingDetailsData
         )
 
-        # Check if the response contains JSON with driver ID in triple backticks
         response_data = {"response": result}
         
-        # Extract driver ID if present in triple backticks
-        # Look for content between triple backticks
+        # Extract JSON content from response if present
         backtick_pattern = r"```(?:\w*\n)?(.*?)```"
         match = re.search(backtick_pattern, result, re.DOTALL)
         
         if match:
             try:
-                # Try to parse the content as JSON
                 json_str = match.group(1).strip()
                 json_data = json.loads(json_str)
                 
-                # Check if it contains employee_id or driverId
+                # Extract driver ID if present
                 driver_id = json_data.get("employee_id") or json_data.get("driverId")
                 if driver_id:
                     response_data["driverId"] = driver_id
                     logger.info(f"Extracted driver ID: {driver_id}")
+                
+                # Extract additional fields if present
+                for field in ["statementOfProblem", "priorDiscussionOrWarning", "summaryOfCorrectiveAction"]:
+                    if field in json_data:
+                        response_data[field] = json_data[field]
+                        logger.info(f"Extracted {field}")
+
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse JSON from response: {e}")
             except Exception as e:
-                logger.warning(f"Error extracting driver ID: {e}")
+                logger.warning(f"Error extracting data from response: {e}")
 
         return response_data
 
