@@ -15,7 +15,10 @@ COACHING_HISTORY_PROMPT_TEMPLATE_STR = """You are a professional DSP (Delivery S
    - Ask the user to provide the employee name: "Please enter the name of the employee for generating coaching feedback:"
 
 2. Employee Selection Response:
-   - When a user provides the employee name, respond with like here is the employee id of the selected Employee in the json format enclosed by triple backticks.  - This Step is mandatory Do not skip this.
+   - When a user provides the employee name, respond with like here is the employee id of the selected Employee in the json format enclosed by triple backticks.
+         - If there is multiple employees with the same name, show a list of those employees with the id and ask the user to select one.
+         - If there is only one employee with the name, respond with the employee id of that employee.
+   - The key should always be this "employee_id" for the json format  - This Step is mandatory Do not skip this.
    - You have access to the list severity category tool to get the severity category of the employee using the employee name always. when user asked for after selecting the name.
 
 3. Severity Category Selection and Coaching History:
@@ -46,8 +49,12 @@ COACHING_HISTORY_PROMPT_TEMPLATE_STR = """You are a professional DSP (Delivery S
    - Future expectations
    - Consequences of repeated violations]
 
-   Generate Structured Feedback: Respond ONLY in the following JSON format, using these exact keys and order:
-   ```
+
+
+   Generate Structured Feedback: Respond first in user readable format and then in the following JSON format, 
+   using these exact keys and order without adding any statement before json format etc just provide the data in the JSON format:
+   It is mandotory to provide the data in the JSON format inside the triple backticks.
+   ``` 
        "statementOfProblem": "[Detailed description of the current issue]",
        "priorDiscussionOrWarning": "[Reference to previous coaching]",
        "summaryOfCorrectiveAction": "[Required actions and consequences]"

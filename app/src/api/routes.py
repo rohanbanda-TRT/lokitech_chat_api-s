@@ -121,6 +121,7 @@ class CoachingFeedbackRequest(BaseModel):
     "/analyze-performance",
     summary="Analyze driver performance",
     description="Analyzes driver performance based on provided metrics and returns structured feedback",
+    tags=["Performance"]
 )
 async def analyze_performance(request: PerformanceRequest):
     try:
@@ -135,7 +136,7 @@ async def analyze_performance(request: PerformanceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/chat")
+@router.post("/chat", tags=["Chat"])
 async def chat(request: ChatRequest):
     try:
         message = (
@@ -157,6 +158,7 @@ async def chat(request: ChatRequest):
     "/driver-screening",
     summary="Screen potential drivers",
     description="Conducts an interactive screening conversation with potential drivers",
+    tags=["Screening"]
 )
 async def driver_screening(request: DriverScreeningRequest):
     try:
@@ -243,6 +245,7 @@ async def driver_screening(request: DriverScreeningRequest):
     "/company-admin",
     summary="Manage company-specific screening questions",
     description="Interactive conversation with company admin to manage screening questions",
+    tags=["Admin"]
 )
 async def company_admin(request: CompanyAdminRequest):
     try:
@@ -263,6 +266,7 @@ async def company_admin(request: CompanyAdminRequest):
     "/company-questions/{dsp_code}",
     summary="Get company-specific questions",
     description="Retrieve the list of questions for a specific company",
+    tags=["Admin"]
 )
 async def get_company_questions(dsp_code: str):
     try:
@@ -279,6 +283,7 @@ async def get_company_questions(dsp_code: str):
     "/company-questions",
     summary="Save company-specific questions",
     description="Save a list of questions for a specific company",
+    tags=["Admin"]
 )
 async def save_company_questions(request: CompanyQuestionsRequest):
     try:
@@ -303,6 +308,7 @@ async def save_company_questions(request: CompanyQuestionsRequest):
     "/coaching-feedback",
     summary="Generate structured coaching feedback",
     description="Generates structured coaching feedback with historical context",
+    tags=["Coaching"]
 )
 async def generate_coaching_feedback(request: CoachingFeedbackRequest):
     try:

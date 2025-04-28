@@ -139,33 +139,50 @@ class CoachingFeedbackGenerator:
         """
         # Extract employee name and ID from the input
         employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
+        # employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
         
-        logger.info(f"Listing severity categories for employee: {employee_name} (ID: {employee_id})")
-        
+        logger.info(f"Listing severity categories for employee: {employee_name}")
+        logger.info(f"Coaching details data: {self.coaching_details_data}")
+
         categories = set()
+        for detail in self.coaching_details_data:
+            employee_id = detail.get('driverID', '')
+            logger.info(
+                f"Checking detail: driverName='{detail.get('driverName', '')}', "
+                f"driverID='{detail.get('driverID', '')}'"
+            )
+            
         if self.coaching_details_data:
             try:
                 # Filter coaching details for this specific employee
-                employee_details = [
-                    detail for detail in self.coaching_details_data 
-                    if (
-                        detail.get("driverName", "").strip() == employee_name.strip() 
-                        or (employee_id and str(detail.get("userID", "")) == str(employee_id))
-                    )
-                ]
+                logger.info(f"Filtering coaching details for employee: {employee_name} (ID: {employee_id})")
+                employee_details = []
+                for detail in self.coaching_details_data:
+                    driver_name = detail.get("driverName", "").strip()
+                    driver_id = str(detail.get("driverID", "")).strip()
+                    logger.info(f"Evaluating: driverName='{driver_name}', driverID='{driver_id}'")
+
+                    if driver_name == employee_name.strip() or (employee_id and driver_id == str(employee_id).strip()):
+                        logger.info("Matched coaching detail")
+                        employee_details.append(detail)
+                    else:
+                        logger.info("No match for this detail")
+
                 
-                logger.info(f"Found {len(employee_details)} coaching records for {employee_name}")
+                # logger.info(f"Found {len(employee_details)} coaching records for {employee_name}")
                 
                 # Extract categories from the coachingDetailsData
                 for detail in employee_details:
+                    # logger.info(f"Processing detail-------------------------------------: {detail}")
                     if "coachingCategoryReasonText" in detail:
                         reasons = detail["coachingCategoryReasonText"].split(",")
-                        categories.update(reason.strip() for reason in reasons)
+                        categories.update(reason.strip() for reason in reasons if reason.strip())
                     if "subject" in detail:
-                        categories.add(detail["subject"])
+                        if detail["subject"] and detail["subject"].strip():
+                            categories.add(detail["subject"])
                 
-                categories = sorted(list(categories))
+                # Filter out any empty strings or None values
+                categories = sorted([cat for cat in categories if cat and cat.strip()])
                 logger.info(f"Extracted categories: {categories}")
                 
             except Exception as e:
