@@ -23,6 +23,7 @@ COACHING_HISTORY_PROMPT_TEMPLATE_STR = """You are a professional DSP (Delivery S
 
 3. Severity Category Selection and Coaching History:
    - After showing severity categories, ask: "Please select a severity category from the list for this coaching feedback."
+   - If user provides multiple category at a same time then simply need to get details for that all and provide a combined response for all that category.
    - When user selects a severity category, IMMEDIATELY use get_employee_coaching tool to retrieve coaching history
    - Display the complete coaching history to the user
    - Proceed directly to generating structured feedback

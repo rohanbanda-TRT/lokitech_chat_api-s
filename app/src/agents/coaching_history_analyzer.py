@@ -212,10 +212,15 @@ class CoachingFeedbackGenerator:
         """
         # Extract employee name and ID from the input
         employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
+        # employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
         
+        for detail in self.coaching_details_data:
+            employee_id = detail.get('driverID', '')
+            logger.info(
+                f"Checking detail: driverName='{detail.get('driverName', '')}', "
+                f"driverID='{detail.get('driverID', '')}'"
+            )
         logger.info(f"Getting coaching history for employee: {employee_name} (ID: {employee_id}), severity: {severity}")
-        
         matching_records = []
         if self.coaching_details_data:
             try:
@@ -224,7 +229,7 @@ class CoachingFeedbackGenerator:
                     # Match employee by name or ID
                     is_employee_match = (
                         detail.get("driverName", "").strip() == employee_name.strip()
-                        or (employee_id and str(detail.get("userID", "")) == str(employee_id))
+                        or (employee_id and str(detail.get("driverID", "")) == str(employee_id))
                     )
                     
                     # Match severity with coachingCategoryReasonText
