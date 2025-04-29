@@ -109,9 +109,6 @@ class CoachingFeedbackRequest(BaseModel):
     subject: Optional[str] = Field(
         None, description="Subject or topic for the conversation"
     )
-    driver_list: Optional[List[EmployeeInfo]] = Field(
-        None, description="List of employees with their names and optional user IDs"
-    )
     coachingDetailsData: Optional[List[Dict]] = Field(
         None, description="Optional coaching details data containing coaching history and other relevant information"
     )
@@ -314,28 +311,17 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
     try:
         # Log the request details
         logger.info(f"Coaching feedback request - message: {request.message}")
-        logger.info(f"Coaching feedback request - driver_list: {request.driver_list}")
         
         # Handle empty message
         message = request.message
         if not message or message.strip() == "":
-            if request.driver_list and len(request.driver_list) > 0:
-                driver_info = []
-                for driver in request.driver_list:
-                    driver_info.append(f"{driver.driverName} (ID: {driver.userID})")
-                
-                drivers_str = ", ".join(driver_info)
-                message = f"Start [Available drivers: {drivers_str}]"
-                logger.info(f"Empty message detected, using default message with driver list: {message}")
-            else:
-                message = "Start"
-                logger.info("Empty message detected, using default 'Start' message")
+            message = "Start"
+            logger.info("Empty message detected, using default 'Start' message")
 
         # Generate coaching feedback
         result = coaching_feedback_generator.generate_feedback(
             query=message, 
             session_id=request.session_id,
-            driver_list=request.driver_list,
             coaching_details_data=request.coachingDetailsData
         )
 
@@ -349,12 +335,6 @@ async def generate_coaching_feedback(request: CoachingFeedbackRequest):
             try:
                 json_str = match.group(1).strip()
                 json_data = json.loads(json_str)
-                
-                # Extract driver ID if present
-                driver_id = json_data.get("employee_id") or json_data.get("driverId")
-                if driver_id:
-                    response_data["driverId"] = driver_id
-                    logger.info(f"Extracted driver ID: {driver_id}")
                 
                 # Extract additional fields if present
                 for field in ["statementOfProblem", "priorDiscussionOrWarning", "summaryOfCorrectiveAction"]:

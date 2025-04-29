@@ -64,7 +64,7 @@ class CoachingFeedbackGenerator:
             StructuredTool.from_function(
                 func=self._list_severity_categories,
                 name="list_severity_categories",
-                description="List all severity categories available for a specific employee",
+                description="List all severity categories available from coaching details",
                 return_direct=True,
             ),
             StructuredTool.from_function(
@@ -127,66 +127,31 @@ class CoachingFeedbackGenerator:
             logger.error(f"Error formatting employee list: {str(e)}")
             return f"Error formatting employee list: {str(e)}"
 
-    def _list_severity_categories(self, employee: str) -> str:
+    def _list_severity_categories(self) -> str:
         """
-        List all severity categories available for a specific employee from coaching details.
+        List all severity categories available from coaching details.
         
-        Args:
-            employee: Employee name (may include ID information in parentheses)
-
         Returns:
             Formatted string with severity categories
         """
-        # Extract employee name and ID from the input
-        employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        # employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
-        
-        logger.info(f"Listing severity categories for employee: {employee_name}")
+        logger.info(f"Listing all severity categories from coaching details")
         logger.info(f"Coaching details data: {self.coaching_details_data}")
+
+        if not self.coaching_details_data:
+            return "No coaching details data available."
 
         categories = set()
         for detail in self.coaching_details_data:
-            employee_id = detail.get('driverID', '')
-            logger.info(
-                f"Checking detail: driverName='{detail.get('driverName', '')}', "
-                f"driverID='{detail.get('driverID', '')}'"
-            )
-            
-        if self.coaching_details_data:
-            try:
-                # Filter coaching details for this specific employee
-                logger.info(f"Filtering coaching details for employee: {employee_name} (ID: {employee_id})")
-                employee_details = []
-                for detail in self.coaching_details_data:
-                    driver_name = detail.get("driverName", "").strip()
-                    driver_id = str(detail.get("driverID", "")).strip()
-                    logger.info(f"Evaluating: driverName='{driver_name}', driverID='{driver_id}'")
+            if "coachingCategoryReasonText" in detail:
+                reasons = detail["coachingCategoryReasonText"].split(",")
+                categories.update(reason.strip() for reason in reasons if reason.strip())
+            if "subject" in detail:
+                if detail["subject"] and detail["subject"].strip():
+                    categories.add(detail["subject"])
 
-                    if driver_name == employee_name.strip() or (employee_id and driver_id == str(employee_id).strip()):
-                        logger.info("Matched coaching detail")
-                        employee_details.append(detail)
-                    else:
-                        logger.info("No match for this detail")
-
-                
-                # logger.info(f"Found {len(employee_details)} coaching records for {employee_name}")
-                
-                # Extract categories from the coachingDetailsData
-                for detail in employee_details:
-                    # logger.info(f"Processing detail-------------------------------------: {detail}")
-                    if "coachingCategoryReasonText" in detail:
-                        reasons = detail["coachingCategoryReasonText"].split(",")
-                        categories.update(reason.strip() for reason in reasons if reason.strip())
-                    if "subject" in detail:
-                        if detail["subject"] and detail["subject"].strip():
-                            categories.add(detail["subject"])
-                
-                # Filter out any empty strings or None values
-                categories = sorted([cat for cat in categories if cat and cat.strip()])
-                logger.info(f"Extracted categories: {categories}")
-                
-            except Exception as e:
-                logger.error(f"Error processing coaching details: {e}")
+        # Filter out any empty strings or None values
+        categories = sorted([cat for cat in categories if cat and cat.strip()])
+        logger.info(f"Extracted categories: {categories}")
         
         # Use default categories if none found
         if not categories:
@@ -197,9 +162,9 @@ class CoachingFeedbackGenerator:
             [f"{i+1}. **{category}**" for i, category in enumerate(categories)]
         )
         
-        return f"Severity categories for coaching feedback for {employee_name}:\n{formatted_categories}"
+        return f"Severity categories for coaching feedback:\n{formatted_categories}"
 
-    def _get_employee_coaching(self, employee: str, severity: str) -> str:
+    def _get_employee_coaching(self, severity: str) -> str:
         """
         Get coaching history for a specific employee and severity category.
 
@@ -210,28 +175,13 @@ class CoachingFeedbackGenerator:
         Returns:
             JSON string containing matching coaching records
         """
-        # Extract employee name and ID from the input
-        employee_name = employee.split(" (ID:")[0] if " (ID:" in employee else employee
-        # employee_id = employee.split("ID: ")[1].rstrip(")") if " (ID:" in employee else None
-        
-        for detail in self.coaching_details_data:
-            employee_id = detail.get('driverID', '')
-            logger.info(
-                f"Checking detail: driverName='{detail.get('driverName', '')}', "
-                f"driverID='{detail.get('driverID', '')}'"
-            )
-        logger.info(f"Getting coaching history for employee: {employee_name} (ID: {employee_id}), severity: {severity}")
+        logger.info(f"Getting coaching history for severity category: {severity}")
         matching_records = []
+        
         if self.coaching_details_data:
             try:
-                # Filter records by employee and severity
+                # Filter records by severity only
                 for detail in self.coaching_details_data:
-                    # Match employee by name or ID
-                    is_employee_match = (
-                        detail.get("driverName", "").strip() == employee_name.strip()
-                        or (employee_id and str(detail.get("driverID", "")) == str(employee_id))
-                    )
-                    
                     # Match severity with coachingCategoryReasonText
                     coaching_category = detail.get("coachingCategoryReasonText", "")
                     categories = [cat.strip() for cat in coaching_category.split(",")]
@@ -240,7 +190,7 @@ class CoachingFeedbackGenerator:
                         or any(severity.strip().lower() == cat.lower() for cat in categories)
                     )
                     
-                    if is_employee_match and is_severity_match:
+                    if is_severity_match:
                         record = {
                             "driverName": detail.get("driverName", ""),
                             "coachingDate": detail.get("coachingDate", ""),
@@ -321,67 +271,39 @@ class CoachingFeedbackGenerator:
         # Compile the graph with the memory saver
         return graph_builder.compile(checkpointer=self.memory)
 
-    def generate_feedback(self, query: str, session_id: str = None, driver_list: List[Dict[str, str]] = None, coaching_details_data: List[Dict] = None) -> str:
+    def generate_feedback(
+        self, query: str, session_id: str = None, coaching_details_data: List[Dict] = None
+    ) -> str:
         """
         Generate coaching feedback based on the query using LangGraph.
 
         Args:
             query: The coaching query/reason (e.g., "Moises was cited for a speeding violation")
-            session_id: Optional session ID for maintaining conversation history
-            driver_list: Optional list of driver information dictionaries
-            coaching_details_data: Optional list of coaching details data containing coaching history
+            session_id: Optional session ID for conversation continuity
+            coaching_details_data: Optional coaching details data containing coaching history
 
         Returns:
             Structured coaching feedback
         """
         try:
-            # Store coaching details data for use in other methods
+            # Store coaching details data for use by tools
             self.coaching_details_data = coaching_details_data
-
-            logger.info(f"Generating feedback for query: {query}")
-
-            # Generate a unique session ID if not provided
+            
+            # Generate a session ID if not provided
             if not session_id:
                 session_id = str(uuid.uuid4())
-                logger.info(f"Generated new session ID: {session_id}")
-            else:
-                logger.info(f"Using existing session ID: {session_id}")
-                
-            # Process the driver_list
-            logger.info(f"Processing driver_list: {driver_list}")
-            
-            # Handle different formats of driver_list
-            processed_driver_list = []
-            if driver_list:
-                for driver in driver_list:
-                    # If driver is a Pydantic model or dict with model_dump method
-                    if hasattr(driver, 'model_dump'):
-                        processed_driver_list.append(driver.model_dump())
-                    # If driver is already a dict
-                    elif isinstance(driver, dict):
-                        processed_driver_list.append(driver)
-                    # If driver is a string or other format
-                    else:
-                        logger.warning(f"Unexpected driver format: {type(driver)}")
-            
-            logger.info(f"Processed driver_list: {processed_driver_list}")
+            logger.info(f"Processing query with session ID: {session_id}")
             
             # Log coaching details data if provided
             if coaching_details_data:
                 logger.info(f"Received coaching details data: {coaching_details_data}")
             
-            # Format the employee list from the processed driver list
-            employee_list = self._format_employee_list(processed_driver_list)
-            logger.info(f"Formatted employee list: {employee_list}")
-            
-            # Create the prompt template with the employee list
+            # Create the prompt template without employee list (will be extracted from message)
             self.prompt = ChatPromptTemplate.from_messages(
                 [
                     (
                         "system",
-                        COACHING_HISTORY_PROMPT_TEMPLATE_STR.format(
-                            employee_list=employee_list
-                        )
+                        COACHING_HISTORY_PROMPT_TEMPLATE_STR
                     ),
                     MessagesPlaceholder(variable_name="chat_history"),
                     ("human", "{input}"),
@@ -393,7 +315,7 @@ class CoachingFeedbackGenerator:
             self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
             
             # Create the agent executor
-            self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools,verbose=True)
+            self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools, verbose=True)
 
             # Create a human message
             human_message = HumanMessage(content=query)
@@ -443,7 +365,7 @@ def main():
 
         # Generate feedback for a sample query
         query = "John Doe was cited for a speeding violation while operating a company vehicle."
-        feedback = generator.generate_feedback(query=query, driver_list=driver_list)
+        feedback = generator.generate_feedback(query=query)
 
         print("\nCoaching Feedback:")
         print(feedback)
