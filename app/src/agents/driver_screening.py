@@ -26,12 +26,13 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from dotenv import load_dotenv
 from ..managers.company_questions_factory import get_company_questions_manager
-from ..tools.driver_screening_tools import DriverScreeningTools, GetDateBasedTimeSlotsInput, UpdateApplicantStatusInput
+from ..tools.driver_screening_tools import DriverScreeningTools, UpdateApplicantStatusInput
 from ..tools.dsp_api_client import DSPApiClient
 from ..prompts.driver_screening import (
     DRIVER_SCREENING_PROMPT_TEMPLATE,
     DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE,
 )
+import datetime
 
 # Comment out Google Calendar related imports and initializations
 # credentials = get_gmail_credentials(
@@ -108,22 +109,17 @@ class DriverScreeningAgent:
                 name="update_applicant_status",
                 description="Update the applicant status based on screening results (PASSED or FAILED)",
             ),
-            StructuredTool.from_function(
-                func=self.screening_tools._get_date_based_time_slots,
-                name="get_date_based_time_slots",
-                description="Convert day-based time slots to actual dates for the next N occurrences",
-            ),
         ]
 
-        # Build the graph
-        self.graph = self._create_graph()
-        
         # Initialize caches
         self.prompt_cache = {}
         self.applicant_details_cache = {}
         self.company_data_cache = {}
-        self.agent_cache = {}  # Cache for agent instances
-        self.executor_cache = {}  # Cache for agent executor instances
+        self.agent_cache = {}
+        self.executor_cache = {}
+
+        # Create the LangGraph
+        self.graph = self._create_graph()
         
         logger.info("DriverScreeningAgent initialized with ReAct agent")
 
@@ -184,7 +180,7 @@ class DriverScreeningAgent:
             logger.error(f"Error getting company questions: {e}")
             return "No company-specific questions are available at this time."
 
-    def _get_company_time_slots_and_contact_info(self, dsp_code: str) -> tuple:
+    def _get_company_time_slots_and_contact_info(self, dsp_code: str):
         """
         Get company time slots and contact information
         
@@ -194,75 +190,18 @@ class DriverScreeningAgent:
         Returns:
             Tuple of (time_slots, contact_info) 
         """
-        # Check if we have cached time slots and contact info for this DSP code
-        cache_key = f"company_info_{dsp_code}"
-        if cache_key in self.company_data_cache:
-            logger.info(f"Using cached time slots and contact info for DSP code: {dsp_code}")
-            return self.company_data_cache[cache_key]
-            
         try:
-            # Get company questions from the manager
-            company_questions = self.questions_manager.get_questions(dsp_code)
-
-            if not company_questions:
-                logger.warning(f"No company data found for DSP code: {dsp_code}")
-                return [], ""
-
-            # Extract time slots and contact info
-            time_slots = company_questions.get("time_slots", [])
-            contact_info = company_questions.get("contact_info", "")
-
-            # Cache the results
-            self.company_data_cache[cache_key] = (time_slots, contact_info)
+            # Get company questions which include time_slots and contact_info
+            company_data = self.questions_manager.get_questions(dsp_code)
+            
+            # Extract time_slots and contact_info
+            time_slots = company_data.get("time_slots", [])
+            contact_info = company_data.get("contact_info", "our hiring team")
+            
             return time_slots, contact_info
         except Exception as e:
             logger.error(f"Error getting company time slots and contact info: {e}")
-            return [], ""
-
-    def _get_date_based_time_slots(self, time_slots: List[str], num_occurrences: int = 2) -> List[str]:
-        """
-        Convert day-based time slots to date-based time slots using the structured tool
-        
-        Args:
-            time_slots: List of time slots in format 'Day Time Range'
-            num_occurrences: Number of future occurrences to generate for each day
-            
-        Returns:
-            List of date-based time slots
-        """
-        # Create a cache key based on the time slots and occurrences
-        cache_key = f"date_slots_{'_'.join(time_slots)}_{num_occurrences}"
-        if cache_key in self.company_data_cache:
-            logger.info("Using cached date-based time slots")
-            return self.company_data_cache[cache_key]
-            
-        try:
-            if not time_slots:
-                return []
-
-            # Create the input object for the tool
-            input_data = GetDateBasedTimeSlotsInput(
-                time_slots=time_slots,
-                num_occurrences=num_occurrences
-            )
-
-            # Call the tool
-            result = self.screening_tools._get_date_based_time_slots(input_data)
-            
-            # Parse the result
-            result_data = json.loads(result)
-            
-            if result_data.get("success"):
-                date_based_slots = result_data.get("date_based_slots", [])
-                # Cache the result
-                self.company_data_cache[cache_key] = date_based_slots
-                return date_based_slots
-            else:
-                logger.warning(f"Failed to get date-based time slots: {result_data.get('message')}")
-                return []
-        except Exception as e:
-            logger.error(f"Error getting date-based time slots: {e}")
-            return []
+            return [], "our hiring team"
 
     def _create_prompt(
             self, dsp_code: str = None, applicant_details: dict = None, session_id: str = None
@@ -278,64 +217,60 @@ class DriverScreeningAgent:
         Returns:
             Formatted prompt template
         """
-        # If we have a session ID and a cached prompt, return it
-        if session_id and session_id in self.prompt_cache:
-            logger.info(f"Using cached prompt for session: {session_id}")
-            return self.prompt_cache[session_id]
-            
-        # Initialize variables
-        company_questions_text = "No company-specific questions are available at this time."
+        # Check cache first
+        cache_key = f"prompt_{dsp_code}_{session_id}"
+        if cache_key in self.prompt_cache:
+            logger.info(f"Using cached prompt for DSP code: {dsp_code}, session: {session_id}")
+            return self.prompt_cache[cache_key]
+
+        # Get company-specific questions if DSP code is provided
+        company_questions_text = ""
         time_slots_text = ""
         contact_info_text = ""
-
-        # Get company-specific questions if dsp_code is provided
+        
+        # Get current date and time
+        current_datetime = datetime.datetime.now()
+        current_date_str = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        
         if dsp_code:
+            logger.info(f"Getting company-specific questions for DSP code: {dsp_code}")
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
             
             # Get time slots and contact info
             time_slots, contact_info = self._get_company_time_slots_and_contact_info(dsp_code)
             
-            # Format time slots if available
             if time_slots:
-                # Try to convert day-based time slots to date-based time slots
-                date_based_slots = self._get_date_based_time_slots(time_slots)
+                time_slots_text = f"Available Time Slots: {', '.join(time_slots)}"
+            else:
+                time_slots_text = "No time slots available"
                 
-                if date_based_slots:
-                    time_slots_text = "Available interview time slots:\n"
-                    for i, slot in enumerate(date_based_slots, 1):
-                        time_slots_text += f"   {i}. {slot}\n"
-                else:
-                    # Fallback to original time slots if conversion failed
-                    time_slots_text = "Available interview time slots:\n"
-                    for i, slot in enumerate(time_slots, 1):
-                        time_slots_text += f"   {i}. {slot}\n"
-            
-            # Format contact info if available
             if contact_info:
-                contact_info_text = f"Company contact information: {contact_info}"
+                contact_info_text = f"Contact Information: {contact_info}"
+            else:
+                contact_info_text = "Contact Information: our hiring team"
 
-        # Choose the appropriate prompt template based on whether we have the applicant's details
-        if applicant_details:
-            # Use the template specifically designed for when we know the applicant's name
-            first_name = applicant_details.get("firstName", "").strip()
-            last_name = applicant_details.get("lastName", "").strip()
+        # Create the prompt template
+        if applicant_details and isinstance(applicant_details, dict):
+            # Use the template with applicant name
+            logger.info("Using prompt template with applicant name")
+            
+            # Get the applicant's name
+            first_name = applicant_details.get("firstName", "")
+            last_name = applicant_details.get("lastName", "")
             applicant_name = f"{first_name} {last_name}".strip()
-
-            logger.info(
-                f"Using personalized prompt template for applicant: {applicant_name}"
-            )
-
+            
             # Replace placeholders in the template
-            prompt_text = DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE.replace(
-                "{{company_specific_questions}}", company_questions_text
-            )
-            # Replace the applicant name placeholder with the actual name
+            prompt_text = DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE
             prompt_text = prompt_text.replace("{{applicant_name}}", applicant_name)
-
-            # Add applicant details section to the prompt
+            prompt_text = prompt_text.replace("{{company_specific_questions}}", company_questions_text)
+            prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No available time slots")
+            prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
+            prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
+            
+            # Add applicant details section for the agent's reference
             applicant_details_text = f"""
-            **Applicant Details (For Internal Reference Only - DO NOT share with the applicant):**
-            - DSP Short Code: {applicant_details.get('dspShortCode', 'N/A')}
+            **Applicant Details (For Internal Reference Only - Do Not Share Directly):**
+            - DSP Code: {dsp_code if dsp_code else 'N/A'}
             - DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
             - Applicant ID: {applicant_details.get('applicantID', 'N/A')}
             - DSP Name: {applicant_details.get('dspName', 'N/A')}
@@ -347,6 +282,7 @@ class DriverScreeningAgent:
             **Company Information (For Internal Reference Only - Use as directed in the instructions):**
             {time_slots_text}
             {contact_info_text}
+            Current Date and Time: {current_date_str}
 
             Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
             """
@@ -363,24 +299,20 @@ class DriverScreeningAgent:
             prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.replace(
                 "{{company_specific_questions}}", company_questions_text
             )
+            prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No available time slots")
+            prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
+            prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
 
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", prompt_text),
-                MessagesPlaceholder(variable_name="chat_history"),
-                ("human", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
-            ]
-        )
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", prompt_text),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
         
-        # Cache the prompt if we have a session ID
-        if session_id:
-            self.prompt_cache[session_id] = prompt_template
-            
-            # Also cache the applicant details for this session
-            if applicant_details:
-                self.applicant_details_cache[session_id] = applicant_details
-                
+        # Cache the prompt
+        self.prompt_cache[cache_key] = prompt_template
+        
         return prompt_template
 
     def _update_applicant_status(
@@ -488,7 +420,7 @@ class DriverScreeningAgent:
                         logger.info(f"Cached agent for session: {session_id}")
 
                 # Create the agent executor
-                agent_executor = AgentExecutor(agent=agent, tools=self.tools)
+                agent_executor = AgentExecutor(agent=agent, tools=self.tools,verbose=True)
                 
                 # Cache the executor if we have a session ID
                 if session_id:

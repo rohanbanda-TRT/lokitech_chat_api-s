@@ -13,12 +13,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class GetDateBasedTimeSlotsInput(BaseModel):
-    """Input model for get_date_based_time_slots tool"""
-    time_slots: List[str] = Field(..., description="List of time slots in format 'Day Time Range' (e.g., 'Monday 9-5')")
-    num_occurrences: int = Field(2, description="Number of future occurrences to generate for each day")
-
-
 class UpdateApplicantStatusInput(BaseModel):
     """Input model for update_applicant_status tool"""
     dsp_code: str = Field(..., description="The DSP short code")
@@ -133,22 +127,20 @@ class DriverScreeningTools:
             Success or error message
         """
         try:
-            # Parse the input JSON string
-            logger.info(f"Received input string: {input_str}")
+            logger.info(f"Updating applicant status with string input: {input_str}")
+            
+            # Parse the input string as JSON
             input_data = json.loads(input_str)
             
-            # Create a Pydantic model from the parsed data
-            model_input = UpdateApplicantStatusInput(
-                dsp_code=input_data.get("dsp_code"),
-                applicant_id=input_data.get("applicant_id"),
-                current_status=input_data.get("current_status", "INPROGRESS"),
-                new_status=input_data.get("new_status"),
-                responses=input_data.get("responses", {})
-            )
+            # Create a Pydantic model from the parsed JSON
+            model_input = UpdateApplicantStatusInput(**input_data)
             
             # Call the structured version of the method
             return self._update_applicant_status(model_input)
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing JSON input: {e}")
+            return json.dumps({"success": False, "message": f"Invalid JSON input: {str(e)}"})
         except Exception as e:
             logger.error(f"Error in string version of update_applicant_status: {e}")
             return json.dumps({"success": False, "message": f"Error: {str(e)}"})
@@ -192,70 +184,3 @@ class DriverScreeningTools:
         except Exception as e:
             logger.error(f"Error in multi-arg version of update_applicant_status: {e}")
             return json.dumps({"success": False, "message": f"Error: {str(e)}"})
-
-    def _get_date_based_time_slots(self, input_data: GetDateBasedTimeSlotsInput) -> str:
-        """
-        Convert day-based time slots (e.g., 'Monday 9-5') to actual dates
-        for the next N occurrences of those days.
-
-        Args:
-            input_data: GetDateBasedTimeSlotsInput object containing time_slots and num_occurrences
-
-        Returns:
-            JSON string with date-based time slots
-        """
-        try:
-            logger.info(f"Generating date-based time slots for: {input_data.time_slots}")
-
-            # Dictionary to map day names to weekday numbers (0 = Monday in datetime)
-            day_to_weekday = {
-                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
-                'friday': 4, 'saturday': 5, 'sunday': 6
-            }
-
-            # Get current date
-            today = datetime.datetime.now().date()
-
-            # Initialize result
-            date_based_slots = []
-
-            # Process each time slot
-            for slot in input_data.time_slots:
-                # Extract day and time range using regex
-                match = re.match(r'(\w+)\s+(.*)', slot, re.IGNORECASE)
-                if not match:
-                    logger.warning(f"Invalid time slot format: {slot}")
-                    continue
-
-                day_name, time_range = match.groups()
-                day_name = day_name.lower()
-
-                # Skip if day name is not recognized
-                if day_name not in day_to_weekday:
-                    logger.warning(f"Unrecognized day name: {day_name}")
-                    continue
-
-                target_weekday = day_to_weekday[day_name]
-
-                # Calculate days until next occurrence of this weekday
-                days_ahead = (target_weekday - today.weekday()) % 7
-                if days_ahead == 0:  # If today is the target day, start from next week
-                    days_ahead = 7
-
-                # Generate the next N occurrences
-                for i in range(input_data.num_occurrences):
-                    next_date = today + datetime.timedelta(days=days_ahead + (i * 7))
-                    formatted_date = next_date.strftime("%A, %B %d, %Y")  # e.g., "Monday, April 21, 2025"
-                    date_based_slots.append(f"{formatted_date} {time_range}")
-
-            return json.dumps({
-                "success": True,
-                "date_based_slots": date_based_slots
-            })
-
-        except Exception as e:
-            logger.error(f"Error generating date-based time slots: {e}")
-            return json.dumps({
-                "success": False,
-                "message": f"Error generating date-based time slots: {str(e)}"
-            })

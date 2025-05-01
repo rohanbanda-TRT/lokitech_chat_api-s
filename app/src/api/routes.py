@@ -210,6 +210,10 @@ async def driver_screening(request: DriverScreeningRequest):
                     applicant_details = applicant_details_obj.model_dump()
                     logger.info(f"Retrieved applicant details: {applicant_details}")
 
+            # Get company contact information
+            _, contact_info = driver_screening_agent._get_company_time_slots_and_contact_info(dsp_code)
+            logger.info(f"Retrieved company contact info: {contact_info}")
+
             result = driver_screening_agent.process_message(
                 message, session_id, dsp_code, station_code, applicant_id
             )
@@ -220,6 +224,7 @@ async def driver_screening(request: DriverScreeningRequest):
                 "dsp_code": dsp_code,
                 "station_code": station_code,
                 "applicant_id": applicant_id,
+                "contact_info": contact_info
             }
 
             # Include applicant details in the response if available
