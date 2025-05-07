@@ -13,6 +13,16 @@ class Question(BaseModel):
     )
 
 
+class ContactInfo(BaseModel):
+    """
+    Model for structured contact information
+    """
+    
+    contact_person_name: str = Field(description="Name of the contact person")
+    contact_number: str = Field(description="Contact phone number")
+    email_id: str = Field(description="Email address for contact")
+
+
 class CompanyQuestions(BaseModel):
     """
     Model for a set of company questions
@@ -23,8 +33,8 @@ class CompanyQuestions(BaseModel):
     time_slots: Optional[List[str]] = Field(
         default=None, description="Available time slots for screening"
     )
-    contact_info: Optional[str] = Field(
-        default=None, description="Contact information for the company"
+    contact_info: Optional[ContactInfo] = Field(
+        default=None, description="Structured contact information for the company"
     )
     append: bool = Field(
         default=True,
@@ -66,4 +76,4 @@ class UpdateContactInfoInput(BaseModel):
     """
     
     dsp_code: str = Field(description="Unique identifier for the company")
-    contact_info: str = Field(description="Contact information for the company")
+    contact_info: ContactInfo = Field(description="Structured contact information for the company")

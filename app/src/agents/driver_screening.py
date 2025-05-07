@@ -195,10 +195,38 @@ class DriverScreeningAgent:
             company_data = self.questions_manager.get_questions(dsp_code)
             
             # Extract time_slots and contact_info
-            time_slots = company_data.get("time_slots", [])
-            contact_info = company_data.get("contact_info", "our hiring team")
+            all_time_slots = company_data.get("time_slots", [])
+            contact_info = company_data.get("contact_info", {})
             
-            return time_slots, contact_info
+            # Filter out past time slots
+            current_date = datetime.datetime.now().date()
+            valid_time_slots = []
+            
+            for slot in all_time_slots:
+                # Try to extract the date part from the time slot
+                try:
+                    # Expected format: "May 10, 2025 9 AM - 5 PM"
+                    date_part = slot.split(' ', 3)[0:3]  # Extract "May", "10,", "2025"
+                    date_str = ' '.join(date_part)  # Combine to "May 10, 2025"
+                    slot_date = datetime.datetime.strptime(date_str, "%B %d, %Y").date()
+                    
+                    # Only include future dates
+                    if slot_date >= current_date:
+                        valid_time_slots.append(slot)
+                except (ValueError, IndexError) as e:
+                    # If we can't parse the date, include the slot (backward compatibility)
+                    logger.warning(f"Could not parse date from time slot '{slot}': {e}")
+                    valid_time_slots.append(slot)
+            
+            # Format contact info if it's a dictionary (new format)
+            if isinstance(contact_info, dict) and all(key in contact_info for key in ["contact_person_name", "contact_number", "email_id"]):
+                # Create a formatted string from the structured contact info
+                formatted_contact_info = f"{contact_info['contact_person_name']} ({contact_info['contact_number']}, {contact_info['email_id']})"
+            else:
+                # Fallback to the old format or default
+                formatted_contact_info = contact_info if isinstance(contact_info, str) else "our hiring team"
+            
+            return valid_time_slots, formatted_contact_info
         except Exception as e:
             logger.error(f"Error getting company time slots and contact info: {e}")
             return [], "our hiring team"
@@ -230,8 +258,7 @@ class DriverScreeningAgent:
         
         # Get current date and time
         current_datetime = datetime.datetime.now()
-        current_date_str = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        
+        current_date_str = current_datetime.strftime("%B %d, %Y")
         if dsp_code:
             logger.info(f"Getting company-specific questions for DSP code: {dsp_code}")
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
@@ -242,7 +269,7 @@ class DriverScreeningAgent:
             if time_slots:
                 time_slots_text = f"Available Time Slots: {', '.join(time_slots)}"
             else:
-                time_slots_text = "No time slots available"
+                time_slots_text = "No valid time slots available"
                 
             if contact_info:
                 contact_info_text = f"Contact Information: {contact_info}"
@@ -259,37 +286,72 @@ class DriverScreeningAgent:
             last_name = applicant_details.get("lastName", "")
             applicant_name = f"{first_name} {last_name}".strip()
             
-            # Replace placeholders in the template
-            prompt_text = DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE
-            prompt_text = prompt_text.replace("{{applicant_name}}", applicant_name)
-            prompt_text = prompt_text.replace("{{company_specific_questions}}", company_questions_text)
-            prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No available time slots")
-            prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
-            prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
-            
-            # Add applicant details section for the agent's reference
-            applicant_details_text = f"""
-            **Applicant Details (For Internal Reference Only - Do Not Share Directly):**
-            - DSP Code: {dsp_code if dsp_code else 'N/A'}
-            - DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
-            - Applicant ID: {applicant_details.get('applicantID', 'N/A')}
-            - DSP Name: {applicant_details.get('dspName', 'N/A')}
-            - First Name: {applicant_details.get('firstName', 'N/A')}
-            - Last Name: {applicant_details.get('lastName', 'N/A')}
-            - Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
-            - Applicant Status: {applicant_details.get('applicantStatus', 'N/A')}
+            # Check if the applicant's status is already PASSED or FAILED
+            current_status = applicant_details.get("applicantStatus", "").strip().upper()
+            if current_status in ["PASSED", "FAILED"]:
+                # Create a simplified prompt for completed screenings
+                prompt_text = f"""
+                    You are a professional driver screening assistant for Lokitech Logistics.
 
-            **Company Information (For Internal Reference Only - Use as directed in the instructions):**
-            {time_slots_text}
-            {contact_info_text}
-            Current Date and Time: {current_date_str}
+                    Your task is to inform {applicant_name} that their screening process is already complete.
 
-            Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
-            """
-            # Insert the applicant details section after the initial message section
-            prompt_text = prompt_text.replace(
-                "Screening Process:", f"{applicant_details_text}\nScreening Process:"
-            )
+                    **Applicant Details (For Internal Reference Only - Do Not Share Directly):**
+                    - DSP Code: {dsp_code if dsp_code else 'N/A'}
+                    - DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
+                    - Applicant ID: {applicant_details.get('applicantID', 'N/A')}
+                    - DSP Name: {applicant_details.get('dspName', 'N/A')}
+                    - First Name: {applicant_details.get('firstName', 'N/A')}
+                    - Last Name: {applicant_details.get('lastName', 'N/A')}
+                    - Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
+                    - Applicant Status: {current_status}
+
+                    **Company Information:**
+                    {time_slots_text}
+                    {contact_info_text}
+                    Current Date and Time: {current_date_str}
+
+                    Instructions:
+                    1. Greet {applicant_name} professionally
+                    2. Inform them that their screening process is already complete with status: {current_status}
+                    3. For any queries, direct them to contact: {contact_info if contact_info else "our hiring team"}
+                    4. Do not ask them any screening questions
+                    5. Do not attempt to update their status again
+                    6. Be polite and professional at all times
+
+                    Remember: The applicant has already completed the screening process. Your only job is to inform them of this fact and provide contact information for any questions they might have.
+                    """
+            else:
+                # Replace placeholders in the template for normal screening
+                prompt_text = DRIVER_SCREENING_WITH_NAME_PROMPT_TEMPLATE
+                prompt_text = prompt_text.replace("{{applicant_name}}", applicant_name)
+                prompt_text = prompt_text.replace("{{company_specific_questions}}", company_questions_text)
+                prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No valid time slots available")
+                prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
+                prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
+                
+                # Add applicant details section for the agent's reference
+                applicant_details_text = f"""
+                **Applicant Details (For Internal Reference Only - Do Not Share Directly):**
+                - DSP Code: {dsp_code if dsp_code else 'N/A'}
+                - DSP Station Code: {applicant_details.get('dspStationCode', 'N/A')}
+                - Applicant ID: {applicant_details.get('applicantID', 'N/A')}
+                - DSP Name: {applicant_details.get('dspName', 'N/A')}
+                - First Name: {applicant_details.get('firstName', 'N/A')}
+                - Last Name: {applicant_details.get('lastName', 'N/A')}
+                - Mobile Number: {applicant_details.get('mobileNumber', 'N/A')}
+                - Applicant Status: {applicant_details.get('applicantStatus', 'N/A')}
+
+                **Company Information (For Internal Reference Only - Use as directed in the instructions):**
+                {time_slots_text}
+                {contact_info_text}
+                Current Date and Time: {current_date_str}
+
+                Remember to use the above information for internal processing only. Never share these details directly with the applicant unless instructed to do so in the screening process.
+                """
+                # Insert the applicant details section after the initial message section
+                prompt_text = prompt_text.replace(
+                    "Screening Process:", f"{applicant_details_text}\nScreening Process:"
+                )
         else:
             # Use the standard template that asks for the applicant's name
             logger.info("Using standard prompt template (will ask for name)")
@@ -299,7 +361,7 @@ class DriverScreeningAgent:
             prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.replace(
                 "{{company_specific_questions}}", company_questions_text
             )
-            prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No available time slots")
+            prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No valid time slots available")
             prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
             prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
 

@@ -26,8 +26,11 @@ My primary responsibilities are:
    - Format time slots consistently for storage
 
 5. Contact Information Collection
-   - Ask for contact information (email, phone number, or other preferred contact method)
-   - Ensure the contact information is properly formatted
+   - Ask for contact information in a structured format with:
+     * Contact person's name
+     * Contact phone number
+     * Email address
+   - Ensure all three fields are collected and properly formatted
 
 6. Intelligent Question Parsing
    - Recognize different question submission formats (numbered lists, bulleted lists, line-separated, comma-separated)
@@ -131,7 +134,11 @@ For creating or updating questions, time slots, and contact info:
     }}
   ],
   "time_slots": ["Monday 9 AM - 5 PM", "Tuesday 2 PM - 6 PM"],
-  "contact_info": "support@company123.com"
+  "contact_info": {{
+    "contact_person_name": "John Smith",
+    "contact_number": "(555) 123-4567",
+    "email_id": "support@company123.com"
+  }}
 }}
 ```
 
@@ -167,7 +174,11 @@ For updating contact information only:
 ```
 {{
   "dsp_code": "COMPANY123",
-  "contact_info": "hr@company123.com"
+  "contact_info": {{
+    "contact_person_name": "Jane Doe",
+    "contact_number": "(555) 987-6543",
+    "email_id": "hr@company123.com"
+  }}
 }}
 ```
 

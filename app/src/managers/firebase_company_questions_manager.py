@@ -23,7 +23,7 @@ class FirebaseCompanyQuestionsManager:
 
     def create_questions(
         self, dsp_code: str, questions: List[Dict[str, Any]], append: bool = True,
-        time_slots: Optional[List[str]] = None, contact_info: Optional[str] = None
+        time_slots: Optional[List[str]] = None, contact_info: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Create or add company-specific questions to the database
@@ -33,7 +33,7 @@ class FirebaseCompanyQuestionsManager:
             questions: List of question objects with question_text and required fields
             append: If True, append new questions to existing ones; if False, replace them
             time_slots: Optional list of available time slots
-            contact_info: Optional contact information
+            contact_info: Optional contact information as a dictionary with contact_person_name, contact_number, and email_id
 
         Returns:
             bool: True if successful, False otherwise
@@ -284,13 +284,13 @@ class FirebaseCompanyQuestionsManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
             
-    def update_contact_info(self, dsp_code: str, contact_info: str) -> bool:
+    def update_contact_info(self, dsp_code: str, contact_info: Dict[str, Any]) -> bool:
         """
         Update contact information for a company
 
         Args:
             dsp_code: The unique identifier for the company
-            contact_info: Contact information
+            contact_info: Contact information dictionary with contact_person_name, contact_number, and email_id
 
         Returns:
             bool: True if successful, False otherwise

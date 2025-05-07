@@ -4,6 +4,8 @@ import os
 import logging
 from dotenv import load_dotenv
 from functools import lru_cache
+from enum import Enum
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -13,6 +15,51 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+# Define environment types
+class Environment(str, Enum):
+    DEVELOPMENT = "development"
+    LOCAL = "local"
+    PRODUCTION = "production"
+
+
+# Get current environment
+def get_environment() -> Environment:
+    env = os.environ.get("FIREBASE_ENV", "local").lower()
+    if env == "production" or env == "prod":
+        return Environment.PRODUCTION
+    elif env == "development" or env == "dev":
+        return Environment.DEVELOPMENT
+    else:
+        return Environment.LOCAL
+
+
+# Get credentials file path based on environment
+def get_credentials_file(environment: Environment) -> Optional[str]:
+    # Default credential file
+    default_cred_file = "firebase-credentials.json"
+    
+    # Environment-specific credential files
+    env_cred_files = {
+        Environment.PRODUCTION: "firebase-credentials-prod.json",
+        Environment.DEVELOPMENT: "firebase-credentials-dev.json",
+        Environment.LOCAL: "firebase-credentials-local.json"
+    }
+    
+    # Check for environment-specific credential file first
+    env_file = env_cred_files[environment]
+    if os.path.exists(env_file):
+        logger.info(f"Using environment-specific credentials file: {env_file}")
+        return env_file
+    
+    # Fall back to default credential file
+    if os.path.exists(default_cred_file):
+        logger.info(f"Using default credentials file: {default_cred_file}")
+        return default_cred_file
+    
+    # No credential file found
+    return None
 
 
 class FirebaseDB:
@@ -27,13 +74,18 @@ class FirebaseDB:
                     firebase_admin.get_app()
                     logger.info("Firebase app already initialized")
                 except ValueError:
+                    # Get current environment
+                    environment = get_environment()
+                    logger.info(f"Initializing Firebase for environment: {environment}")
+                    
+                    # Get credentials file for current environment
+                    cred_file = get_credentials_file(environment)
+                    
                     # Initialize Firebase app
-                    # For production, use a service account key file
-                    # For development, we'll use the application default credentials
-                    if os.path.exists("firebase-credentials.json"):
-                        cred = credentials.Certificate("firebase-credentials.json")
+                    if cred_file:
+                        cred = credentials.Certificate(cred_file)
                         firebase_admin.initialize_app(cred)
-                        logger.info("Firebase initialized with service account")
+                        logger.info(f"Firebase initialized with service account from {cred_file}")
                     else:
                         # Use application default credentials
                         firebase_admin.initialize_app()

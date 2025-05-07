@@ -10,6 +10,7 @@ from ..models.question_models import (
     UpdateContactInfoInput,
 )
 from ..managers.company_questions_factory import get_company_questions_manager
+import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -88,9 +89,22 @@ class CompanyAdminTools:
                         logger.info("Fetching existing questions for partial update")
                         existing_data = self.questions_manager.get_questions(dsp_code)
                         if existing_data and "questions" in existing_data:
-                            questions = existing_data.get("questions", [])
-                            logger.info(f"Retrieved {len(questions)} existing questions")
-                
+                            questions = existing_data["questions"]
+                            logger.info(f"Using {len(questions)} existing questions")
+
+                # Validate contact_info structure if provided
+                if contact_info_provided:
+                    if not isinstance(contact_info, dict):
+                        logger.error("Contact info must be a dictionary with contact_person_name, contact_number, and email_id fields")
+                        return "Error: Contact info must be a dictionary with contact_person_name, contact_number, and email_id fields"
+                    
+                    # Check if all required fields are present
+                    required_fields = ["contact_person_name", "contact_number", "email_id"]
+                    missing_fields = [field for field in required_fields if field not in contact_info]
+                    if missing_fields:
+                        logger.error(f"Missing required fields in contact_info: {missing_fields}")
+                        return f"Error: Missing required fields in contact_info: {missing_fields}"
+
                 # Convert questions to dict if they're not already
                 questions_dict = []
                 for q in questions:
@@ -110,29 +124,15 @@ class CompanyAdminTools:
                 )
 
                 if success:
-                    response_parts = []
-                    if questions_provided:
-                        if append:
-                            response_parts.append(f"Successfully added {len(questions)} questions")
-                        else:
-                            response_parts.append(f"Successfully replaced questions with {len(questions)} new questions")
-                    if time_slots_provided:
-                        response_parts.append(f"set {len(time_slots)} time slots")
-                    if contact_info_provided:
-                        response_parts.append(f"updated contact information")
-                    
-                    if not response_parts:
-                        response = f"Successfully updated company {dsp_code}"
-                    else:
-                        response = " and ".join(response_parts) + f" for company {dsp_code}"
-                    
-                    logger.info(response)
-                    return response
+                    logger.info(
+                        f"Successfully created/updated {len(questions)} questions for company {dsp_code}"
+                    )
+                    return f"Successfully created/updated {len(questions)} questions for company {dsp_code}"
                 else:
-                    logger.error("Failed to create/update company information in database")
-                    return "Failed to create/update company information in database"
+                    logger.error("Failed to create/update questions")
+                    return "Failed to create/update questions. Please check the input data."
             else:
-                logger.error("Missing required fields in input")
+                logger.error("Missing required field 'dsp_code' in input")
                 return "Error: Input must contain 'dsp_code' field"
 
         except Exception as e:
@@ -309,10 +309,34 @@ class CompanyAdminTools:
                 dsp_code = data["dsp_code"]
                 time_slots = data["time_slots"]
                 
+                # Validate time slots format
+                validated_time_slots = []
+                for slot in time_slots:
+                    try:
+                        # Check if the slot already has a date in the correct format
+                        # Expected format: "May 10, 2025 9 AM - 5 PM"
+                        parts = slot.split(' ', 3)
+                        if len(parts) >= 3:
+                            # Try to parse the date part
+                            date_str = ' '.join(parts[0:3])
+                            datetime.datetime.strptime(date_str, "%B %d, %Y")
+                            # If we get here, the date is valid, so keep the slot as is
+                            validated_time_slots.append(slot)
+                        else:
+                            # Slot doesn't have a date, so we'll add today's date
+                            logger.warning(f"Time slot '{slot}' doesn't have a date, adding current date")
+                            current_date = datetime.datetime.now().strftime("%B %d, %Y")
+                            validated_time_slots.append(f"{current_date} {slot}")
+                    except ValueError:
+                        # Date format is incorrect, so we'll reformat it
+                        logger.warning(f"Time slot '{slot}' has invalid date format, adding current date")
+                        current_date = datetime.datetime.now().strftime("%B %d, %Y")
+                        validated_time_slots.append(f"{current_date} {slot}")
+                
                 # Update the time slots
                 success = self.questions_manager.update_time_slots(
                     dsp_code,
-                    time_slots,
+                    validated_time_slots,
                 )
 
                 if success:
@@ -359,6 +383,18 @@ class CompanyAdminTools:
             if "dsp_code" in data and "contact_info" in data:
                 dsp_code = data["dsp_code"]
                 contact_info = data["contact_info"]
+                
+                # Validate contact_info structure
+                if not isinstance(contact_info, dict):
+                    logger.error("Contact info must be a dictionary with contact_person_name, contact_number, and email_id fields")
+                    return "Error: Contact info must be a dictionary with contact_person_name, contact_number, and email_id fields"
+                
+                # Check if all required fields are present
+                required_fields = ["contact_person_name", "contact_number", "email_id"]
+                missing_fields = [field for field in required_fields if field not in contact_info]
+                if missing_fields:
+                    logger.error(f"Missing required fields in contact_info: {missing_fields}")
+                    return f"Error: Missing required fields in contact_info: {missing_fields}"
                 
                 # Update the contact info
                 success = self.questions_manager.update_contact_info(

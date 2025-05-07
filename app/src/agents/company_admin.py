@@ -48,7 +48,7 @@ class CreateQuestionsInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
     questions: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of questions with question_text and criteria")
     time_slots: Optional[List[str]] = Field(default=None, description="Available time slots for screening")
-    contact_info: Optional[str] = Field(default=None, description="Contact information for the company")
+    contact_info: Optional[Dict[str, Any]] = Field(default=None, description="Structured contact information with contact_person_name, contact_number, and email_id fields")
     append: bool = Field(default=True, description="Whether to append to existing questions or replace them")
 
 
@@ -74,7 +74,7 @@ class UpdateTimeSlotsToolInput(BaseModel):
 
 class UpdateContactInfoToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
-    contact_info: str = Field(description="Contact information for the company")
+    contact_info: Dict[str, Any] = Field(description="Structured contact information with contact_person_name, contact_number, and email_id fields")
 
 
 class CompanyAdminAgent:
@@ -104,14 +104,24 @@ class CompanyAdminAgent:
         # Helper methods for tools
         def create_questions_tool(data: CreateQuestionsInput) -> str:
             """Create or update company questions, time slots, and contact info"""
-            # Validate and clean up the input data
-            cleaned_data = data.model_dump(exclude_none=True)
+            # Convert to dict for the tool
+            input_data = {
+                "dsp_code": data.dsp_code,
+                "append": data.append
+            }
             
-            # If questions is empty list, remove it to avoid confusion
-            if "questions" in cleaned_data and not cleaned_data["questions"]:
-                del cleaned_data["questions"]
+            # Add optional fields if provided
+            if data.questions is not None:
+                input_data["questions"] = data.questions
+            if data.time_slots is not None:
+                input_data["time_slots"] = data.time_slots
+            if data.contact_info is not None:
+                # Ensure contact_info has all required fields
+                if not all(key in data.contact_info for key in ["contact_person_name", "contact_number", "email_id"]):
+                    return "Error: Contact info must include contact_person_name, contact_number, and email_id fields"
+                input_data["contact_info"] = data.contact_info
                 
-            return self.admin_tools.create_questions(json.dumps(cleaned_data))
+            return self.admin_tools.create_questions(json.dumps(input_data))
             
         def get_questions_tool(data: GetQuestionsInput) -> str:
             """Get company questions, time slots, and contact info"""
@@ -131,7 +141,16 @@ class CompanyAdminAgent:
             
         def update_contact_info_tool(data: UpdateContactInfoToolInput) -> str:
             """Update contact info"""
-            return self.admin_tools.update_contact_info(json.dumps(data.model_dump()))
+            # Ensure contact_info has all required fields
+            if not all(key in data.contact_info for key in ["contact_person_name", "contact_number", "email_id"]):
+                return "Error: Contact info must include contact_person_name, contact_number, and email_id fields"
+                
+            # Convert to dict for the tool
+            input_data = {
+                "dsp_code": data.dsp_code,
+                "contact_info": data.contact_info
+            }
+            return self.admin_tools.update_contact_info(json.dumps(input_data))
 
         # Set up tools using StructuredTool for better argument handling
         self.tools = [
