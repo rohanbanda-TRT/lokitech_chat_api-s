@@ -225,11 +225,17 @@ class DriverScreeningAgent:
             else:
                 # Fallback to the old format or default
                 formatted_contact_info = contact_info if isinstance(contact_info, str) else "our hiring team"
+                # Create a basic object if contact_info is not already a dict
+                if isinstance(contact_info, str):
+                    contact_info = {"contact_person_name": contact_info}
+                elif not isinstance(contact_info, dict):
+                    contact_info = {"contact_person_name": "Hiring Team"}
             
-            return valid_time_slots, formatted_contact_info
+            return valid_time_slots, contact_info, formatted_contact_info
         except Exception as e:
             logger.error(f"Error getting company time slots and contact info: {e}")
-            return [], "our hiring team"
+            default_contact = {"contact_person_name": "Hiring Team"}
+            return [], default_contact, "our hiring team"
 
     def _create_prompt(
             self, dsp_code: str = None, applicant_details: dict = None, session_id: str = None
@@ -264,7 +270,7 @@ class DriverScreeningAgent:
             company_questions_text = self._get_company_specific_questions_text(dsp_code)
             
             # Get time slots and contact info
-            time_slots, contact_info = self._get_company_time_slots_and_contact_info(dsp_code)
+            time_slots, _, contact_info = self._get_company_time_slots_and_contact_info(dsp_code)
             
             if time_slots:
                 time_slots_text = f"Available Time Slots: {', '.join(time_slots)}"
@@ -612,7 +618,7 @@ class DriverScreeningAgent:
                                 )
 
                                 # Get company contact info if available
-                                _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                                _, _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
                                 contact_info = contact_info_text if contact_info_text else "our support team"
                                 
                                 return f"Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
@@ -634,7 +640,7 @@ class DriverScreeningAgent:
                             )
 
                             # Get company contact info if available
-                            _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
+                            _, _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
                             contact_info = contact_info_text if contact_info_text else "our support team"
                             
                             # Return a polite message to end the conversation if applicant details are not found
