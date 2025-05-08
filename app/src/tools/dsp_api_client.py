@@ -1,8 +1,10 @@
 import requests
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
+import datetime
+from ..utils.time_slot_parser import parse_time_slot, extract_time_slot_from_responses
 
 # Configure logging
 logging.basicConfig(
@@ -87,6 +89,78 @@ class DSPApiClient:
             logger.error(f"Error retrieving applicant details: {e}")
             return None
 
+    def add_pre_manage_applicant(self, applicant_details: Dict[str, Any], time_slot: Optional[str] = None) -> bool:
+        """
+        Add a pre-manage applicant to the system when they pass the screening
+        
+        Args:
+            applicant_details: Dictionary containing applicant details
+            time_slot: Optional time slot selected by the applicant
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Adding pre-manage applicant: {applicant_details['firstName']} {applicant_details['lastName']}")
+            logger.info(f"Time slot provided: {time_slot}")
+            
+            # Parse the time slot if provided
+            scheduled_date, scheduled_time = parse_time_slot(time_slot)
+            
+            # If no date and time were found, leave them as None
+            if not scheduled_date and not scheduled_time:
+                logger.info("No date and time found, will pass null values to API")
+            # Otherwise, ensure we have values for both
+            elif scheduled_date and not scheduled_time:
+                # If we have a date but no time, use a default time
+                scheduled_time = "10:00 AM"
+                logger.info(f"Using default time: {scheduled_time} with date: {scheduled_date}")
+            elif not scheduled_date and scheduled_time:
+                # If we have a time but no date, use tomorrow's date
+                tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+                scheduled_date = tomorrow.strftime("%Y-%m-%d")
+                logger.info(f"Using tomorrow's date: {scheduled_date} with time: {scheduled_time}")
+            
+            url = f"{self.base_url}/PreManageApplicant/AddpreManageApplicants"
+            
+            # Prepare the payload according to the API requirements
+            payload = {
+                "FirstName": applicant_details.get("firstName", ""),
+                "LastName": applicant_details.get("lastName", ""),
+                "Email": "",  # Email will always be null as specified
+                "MobileNumber": applicant_details.get("mobileNumber", ""),
+                "Designation": "Delivery Associate",  # Always set to this value as specified
+                "SourceOfApplication": "None",  # Always set to this value as specified
+                "ScheduleInterview": "Yes" if scheduled_date and scheduled_time else "",
+                "ScheduleType": "In-Person",  # Always set to this value as specified
+                "ScheduledInterviewDate": scheduled_date if scheduled_date else None,
+                "ScheduledInterviewTime": scheduled_time if scheduled_time else None,
+                "dspSchortCode": applicant_details.get("dspShortCode", "")
+            }
+            
+            logger.info(f"Sending add pre-manage applicant payload: {payload}")
+            
+            # Send POST request to add the pre-manage applicant
+            response = requests.request(
+                method="POST",
+                url=url,
+                headers=self.headers,
+                data=json.dumps(payload),  # Convert to JSON string
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Successfully added pre-manage applicant")
+                logger.info(f"Response: {response.text}")
+                return True
+            else:
+                logger.error(f"Failed to add pre-manage applicant. Status code: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error adding pre-manage applicant: {e}")
+            return False
+    
     def update_applicant_status(
         self,
         dsp_code: str,
@@ -142,6 +216,27 @@ class DSPApiClient:
 
             if response.status_code == 200:
                 logger.info(f"Successfully updated applicant status to {new_status}")
+                
+                # If the new status is PASSED, call the add_pre_manage_applicant endpoint
+                if new_status == "PASSED":
+                    # Get the applicant details
+                    applicant_details = self.get_applicant_details(
+                        dsp_code=dsp_code,
+                        applicant_id=applicant_id
+                    )
+                    
+                    if applicant_details:
+                        # Extract the selected time slot from responses if available
+                        selected_time_slot = None
+                        if applicant_data and "responses" in applicant_data:
+                            selected_time_slot = extract_time_slot_from_responses(applicant_data["responses"])
+                        
+                        # Call the add_pre_manage_applicant endpoint
+                        self.add_pre_manage_applicant(
+                            applicant_details=applicant_details.model_dump(),
+                            time_slot=selected_time_slot
+                        )
+                
                 return True
             else:
                 logger.error(

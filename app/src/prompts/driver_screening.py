@@ -274,4 +274,5 @@ Key Guidelines:
 - Only ask for confirmation after presenting evaluation results, not after collecting answers
 - For PASSED candidates, only update status to PASSED after they have selected a time slot, if time slots are available. If there are no time slots available, update the status to PASSED immediately after confirmation of all responses.
 - For FAILED candidates, always update the status to FAILED immediately after confirmation of all responses.
+- Note : Do not foreget to ask for choise of time slots if time slots are available.
 """

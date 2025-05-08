@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from .dsp_api_client import DSPApiClient, ApplicantDetails
 import datetime
 import re
+from ..utils.time_slot_parser import extract_time_slot_from_responses, format_company_time_slot
 
 # Configure logging
 logging.basicConfig(
@@ -168,6 +169,45 @@ class DriverScreeningTools:
         """
         try:
             logger.info(f"Updating applicant status with multi-args: {dsp_code}, {applicant_id}, {current_status}, {new_status}")
+            
+            # If the new status is PASSED, try to extract time slot information from responses
+            selected_time_slot = None
+            if new_status == "PASSED":
+                # Extract time slot from responses
+                selected_time_slot = extract_time_slot_from_responses(responses)
+                logger.info(f"Time slot extracted from responses: {selected_time_slot}")
+                
+                # If no time slot was found in responses, try to get company time slots
+                if not selected_time_slot:
+                    try:
+                        # Import here to avoid circular imports
+                        from ..managers.company_questions_factory import get_company_questions_manager
+                        
+                        # Get company questions manager
+                        questions_manager = get_company_questions_manager()
+                        
+                        # Get company data
+                        company_data = questions_manager.get_questions(dsp_code)
+                        
+                        # Extract time slots if available
+                        if company_data and "time_slots" in company_data and company_data["time_slots"] and len(company_data["time_slots"]) > 0:
+                            # Just use the first available time slot
+                            time_slot_text = company_data["time_slots"][0]
+                            logger.info(f"Found company time slot: {time_slot_text}")
+                            
+                            # Format the company time slot
+                            formatted_time_slot = format_company_time_slot(time_slot_text)
+                            if formatted_time_slot:
+                                selected_time_slot = formatted_time_slot
+                                logger.info(f"Using company time slot: {selected_time_slot}")
+                        else:
+                            logger.info("No company time slots available, will pass null values to API")
+                    except Exception as e:
+                        logger.error(f"Error getting company time slots: {e}")
+            
+            # Add the selected time slot to responses if found
+            if selected_time_slot and responses and isinstance(responses, dict):
+                responses["selected_time_slot"] = selected_time_slot
             
             # Create a Pydantic model from the arguments
             model_input = UpdateApplicantStatusInput(
