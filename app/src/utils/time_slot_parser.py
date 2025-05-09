@@ -5,7 +5,8 @@ Utility functions for parsing and formatting time slots.
 import re
 import logging
 import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
+from .date_utils import format_next_day_with_time_slot, get_next_day_date
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -141,40 +142,54 @@ def format_company_time_slot(time_slot_text: str) -> Optional[str]:
         return None
     
     try:
-        # Add tomorrow's date to the time slot
+        # Check if the time slot already has a date (e.g., "May 10, 2025 Monday 9-11 AM")
+        if re.search(r'\b[A-Za-z]+\s+\d{1,2},\s+\d{4}\b', time_slot_text):
+            # Already has a date, return as is
+            return time_slot_text
+            
+        # Check if it's a recurring time slot (starts with a day name)
+        day_pattern = r'^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b'
+        day_match = re.search(day_pattern, time_slot_text, re.IGNORECASE)
+        
+        if day_match:
+            # It's a recurring time slot, extract the day name and time
+            day_name = day_match.group(1)
+            # Extract time part (everything after the day name)
+            time_parts = time_slot_text.split(maxsplit=1)
+            if len(time_parts) > 1:
+                time_str = time_parts[1].strip()
+                # Use the date_utils function to format with the next occurrence date
+                return format_next_day_with_time_slot(day_name, time_str)
+        
+        # If we get here, it's not a recognized format, use tomorrow's date as fallback
         today = datetime.datetime.now()
         tomorrow = today + datetime.timedelta(days=1)
-        date_str = tomorrow.strftime("%Y-%m-%d")
-        
-        # Extract time from the time slot text (e.g., "Monday 9-11 AM" -> "9-11 AM")
-        time_parts = time_slot_text.split()
-        if len(time_parts) <= 1:
-            return None
-        
-        # Handle different time formats
-        time_str = " ".join(time_parts[1:])  # Skip the day name
-        
-        # Check if it's a time range like "9-11 AM"
-        if "-" in time_str and ("AM" in time_str.upper() or "PM" in time_str.upper()):
-            # Extract the start time from the range
-            start_time = time_str.split("-")[0].strip()
-            am_pm = ""
-            if "AM" in time_str.upper():
-                am_pm = "AM"
-            elif "PM" in time_str.upper():
-                am_pm = "PM"
-                
-            # Format as HH:00 AM/PM
-            if ":" not in start_time:
-                start_time = f"{start_time}:00 {am_pm}"
-            else:
-                start_time = f"{start_time} {am_pm}"
-                
-            return f"{date_str} {start_time}"
-        else:
-            # Use the time as is
-            return f"{date_str} {time_str}"
+        date_str = tomorrow.strftime("%B %d, %Y")
+        return f"{date_str} {time_slot_text}"
     
     except Exception as e:
         logger.error(f"Error formatting company time slot: {e}")
         return None
+
+
+def format_recurrence_time_slots(recurrence_time_slots: List[str]) -> List[str]:
+    """
+    Format a list of recurrence time slots with their next occurrence dates.
+    
+    Args:
+        recurrence_time_slots: List of recurring time slots (e.g., ["Monday 9 AM - 5 PM"])
+        
+    Returns:
+        List of formatted time slots with dates
+    """
+    if not recurrence_time_slots:
+        return []
+    
+    formatted_slots = []
+    
+    for slot in recurrence_time_slots:
+        formatted_slot = format_company_time_slot(slot)
+        if formatted_slot:
+            formatted_slots.append(formatted_slot)
+    
+    return formatted_slots

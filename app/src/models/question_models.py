@@ -31,7 +31,10 @@ class CompanyQuestions(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
     questions: List[Question] = Field(description="List of screening questions")
     time_slots: Optional[List[str]] = Field(
-        default=None, description="Available time slots for screening"
+        default=None, description="Available time slots for screening with specific dates"
+    )
+    recurrence_time_slots: Optional[List[str]] = Field(
+        default=None, description="Recurring time slots that happen on specific days of the week"
     )
     contact_info: Optional[ContactInfo] = Field(
         default=None, description="Structured contact information for the company"
@@ -68,6 +71,7 @@ class UpdateTimeSlotsInput(BaseModel):
     
     dsp_code: str = Field(description="Unique identifier for the company")
     time_slots: List[str] = Field(description="Available time slots for screening")
+    is_recurrence: bool = Field(default=False, description="Whether these are recurring time slots")
 
 
 class UpdateContactInfoInput(BaseModel):

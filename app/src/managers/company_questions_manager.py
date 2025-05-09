@@ -106,34 +106,45 @@ class CompanyQuestionsManager:
             dsp_code: The unique identifier for the company
 
         Returns:
-            Dict containing questions, time_slots, and contact_info
+            Dict containing questions, time_slots, recurrence_time_slots, and contact_info
         """
         try:
-            logger.info(f"Retrieving questions for dsp_code: {dsp_code}")
+            logger.info(f"Getting questions for dsp_code: {dsp_code}")
 
-            # Find company questions document
-            company_doc = self.collection.find_one(
-                {"dsp_code": dsp_code},
-                {
-                    "_id": 0,
-                },  # Exclude _id field
-            )
+            # Find the document for this company
+            company_doc = self.collection.find_one({"dsp_code": dsp_code})
 
-            if company_doc:
-                result = {
-                    "questions": company_doc.get("questions", []),
-                    "time_slots": company_doc.get("time_slots", None),
-                    "contact_info": company_doc.get("contact_info", None)
-                }
-                logger.info(f"Found data for dsp_code: {dsp_code}")
-                return result
-            else:
-                logger.info(f"No data found for dsp_code: {dsp_code}")
-                return {"questions": [], "time_slots": None, "contact_info": None}
+            if not company_doc:
+                logger.warning(f"No questions found for dsp_code: {dsp_code}")
+                return {}
+
+            # Extract the questions, time_slots, recurrence_time_slots, and contact_info
+            questions = company_doc.get("questions", [])
+            time_slots = company_doc.get("time_slots", [])
+            recurrence_time_slots = company_doc.get("recurrence_time_slots", [])
+            contact_info = company_doc.get("contact_info", {})
+
+            # Convert ObjectId to string for JSON serialization
+            if "_id" in company_doc:
+                del company_doc["_id"]
+
+            logger.info(f"Found {len(questions)} questions for dsp_code: {dsp_code}")
+            logger.info(f"Found {len(time_slots)} time slots for dsp_code: {dsp_code}")
+            logger.info(f"Found {len(recurrence_time_slots)} recurrence time slots for dsp_code: {dsp_code}")
+            logger.info(f"Found contact info: {contact_info}")
+
+            # Return a dictionary with all the information
+            return {
+                "dsp_code": dsp_code,
+                "questions": questions,
+                "time_slots": time_slots,
+                "recurrence_time_slots": recurrence_time_slots,
+                "contact_info": contact_info,
+            }
 
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
-            return {"questions": [], "time_slots": None, "contact_info": None}
+            return {}
 
     def update_question(
         self, dsp_code: str, question_index: int, updated_question: Dict[str, Any]
@@ -298,4 +309,67 @@ class CompanyQuestionsManager:
 
         except Exception as e:
             logger.error(f"Error updating contact info: {e}")
+            return False
+            
+    def update_recurrence_time_slots(self, dsp_code: str, recurrence_time_slots: List[str]) -> bool:
+        """
+        Update recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            recurrence_time_slots: List of recurring time slots (e.g., "Monday 9 AM - 5 PM")
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating recurrence time slots for dsp_code: {dsp_code}")
+            logger.info(f"Recurrence time slots: {recurrence_time_slots}")
+
+            # Update the recurrence time slots
+            result = self.collection.update_one(
+                {"dsp_code": dsp_code},
+                {"$set": {"recurrence_time_slots": recurrence_time_slots}},
+                upsert=True  # Create if it doesn't exist
+            )
+
+            success = result.modified_count > 0 or result.upserted_id is not None
+            logger.info(f"Update result: {result.modified_count} documents modified, {result.upserted_id is not None} upserted")
+            return success
+
+        except Exception as e:
+            logger.error(f"Error updating recurrence time slots: {e}")
+            return False
+            
+    def delete_recurrence_time_slots(self, dsp_code: str) -> bool:
+        """
+        Delete all recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Deleting recurrence time slots for dsp_code: {dsp_code}")
+
+            # Check if the document exists
+            company_doc = self.collection.find_one({"dsp_code": dsp_code})
+            if not company_doc:
+                logger.error(f"No document found for dsp_code: {dsp_code}")
+                return False
+
+            # Update the document to remove recurrence_time_slots
+            result = self.collection.update_one(
+                {"dsp_code": dsp_code},
+                {"$set": {"recurrence_time_slots": []}}
+            )
+
+            success = result.modified_count > 0
+            logger.info(f"Delete result: {result.modified_count} documents modified")
+            return success
+
+        except Exception as e:
+            logger.error(f"Error deleting recurrence time slots: {e}")
             return False

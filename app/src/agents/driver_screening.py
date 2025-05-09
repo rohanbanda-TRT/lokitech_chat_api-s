@@ -194,9 +194,17 @@ class DriverScreeningAgent:
             # Get company questions which include time_slots and contact_info
             company_data = self.questions_manager.get_questions(dsp_code)
             
-            # Extract time_slots and contact_info
+            # Extract time_slots, recurrence_time_slots, and contact_info
             all_time_slots = company_data.get("time_slots", [])
+            recurrence_time_slots = company_data.get("recurrence_time_slots", [])
             contact_info = company_data.get("contact_info", {})
+            
+            # Format recurrence time slots with next occurrence dates
+            from ..utils.time_slot_parser import format_recurrence_time_slots
+            formatted_recurrence_slots = format_recurrence_time_slots(recurrence_time_slots)
+            
+            # Combine regular time slots with formatted recurrence time slots
+            all_time_slots = all_time_slots + formatted_recurrence_slots
             
             # Filter out past time slots
             current_date = datetime.datetime.now().date()

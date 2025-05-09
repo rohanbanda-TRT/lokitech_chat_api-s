@@ -70,11 +70,16 @@ class DeleteQuestionToolInput(BaseModel):
 class UpdateTimeSlotsToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
     time_slots: List[str] = Field(description="Available time slots for screening")
+    is_recurrence: bool = Field(default=False, description="Whether these are recurring time slots")
 
 
 class UpdateContactInfoToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
     contact_info: Dict[str, Any] = Field(description="Structured contact information with contact_person_name, contact_number, and email_id fields")
+
+
+class DeleteRecurrenceTimeSlotsToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
 
 
 class CompanyAdminAgent:
@@ -152,37 +157,56 @@ class CompanyAdminAgent:
             }
             return self.admin_tools.update_contact_info(json.dumps(input_data))
 
-        # Set up tools using StructuredTool for better argument handling
+        def delete_recurrence_time_slots_tool(data: DeleteRecurrenceTimeSlotsToolInput) -> str:
+            """Delete all recurring time slots for a company"""
+            try:
+                # Convert the data to a JSON string
+                input_str = json.dumps({
+                    "dsp_code": data.dsp_code,
+                })
+                # Call the tool
+                return tools_obj.delete_recurrence_time_slots(input_str)
+            except Exception as e:
+                logger.error(f"Error in delete_recurrence_time_slots_tool: {e}")
+                return f"Error: {str(e)}"
+
+        # Create the tools
+        tools_obj = CompanyAdminTools()
         self.tools = [
             StructuredTool.from_function(
                 func=create_questions_tool,
                 name="create_questions",
-                description="Create or add new questions, time slots, and contact info to the database",
+                description="Create or update company questions, time slots, and contact info",
             ),
             StructuredTool.from_function(
                 func=get_questions_tool,
                 name="get_questions",
-                description="Retrieve existing questions, time slots, and contact info for a company",
+                description="Get company questions, time slots, and contact info",
             ),
             StructuredTool.from_function(
                 func=update_question_tool,
                 name="update_question",
-                description="Update a specific question for a company",
+                description="Update a specific question",
             ),
             StructuredTool.from_function(
                 func=delete_question_tool,
                 name="delete_question",
-                description="Delete a specific question for a company",
+                description="Delete a specific question",
             ),
             StructuredTool.from_function(
                 func=update_time_slots_tool,
                 name="update_time_slots",
-                description="Update available time slots for a company",
+                description="Update time slots",
             ),
             StructuredTool.from_function(
                 func=update_contact_info_tool,
                 name="update_contact_info",
-                description="Update contact information for a company",
+                description="Update contact info",
+            ),
+            StructuredTool.from_function(
+                func=delete_recurrence_time_slots_tool,
+                name="delete_recurrence_time_slots",
+                description="Delete all recurring time slots for a company",
             ),
         ]
 

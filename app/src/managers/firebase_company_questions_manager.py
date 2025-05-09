@@ -23,7 +23,8 @@ class FirebaseCompanyQuestionsManager:
 
     def create_questions(
         self, dsp_code: str, questions: List[Dict[str, Any]], append: bool = True,
-        time_slots: Optional[List[str]] = None, contact_info: Optional[Dict[str, Any]] = None
+        time_slots: Optional[List[str]] = None, recurrence_time_slots: Optional[List[str]] = None,
+        contact_info: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Create or add company-specific questions to the database
@@ -32,7 +33,8 @@ class FirebaseCompanyQuestionsManager:
             dsp_code: The unique identifier for the company
             questions: List of question objects with question_text and required fields
             append: If True, append new questions to existing ones; if False, replace them
-            time_slots: Optional list of available time slots
+            time_slots: Optional list of available time slots with specific dates
+            recurrence_time_slots: Optional list of recurring time slots (e.g., "Monday 9 AM - 5 PM")
             contact_info: Optional contact information as a dictionary with contact_person_name, contact_number, and email_id
 
         Returns:
@@ -43,6 +45,7 @@ class FirebaseCompanyQuestionsManager:
             logger.info(f"Questions to create: {questions}")
             logger.info(f"Append mode: {append}")
             logger.info(f"Time slots: {time_slots}")
+            logger.info(f"Recurrence time slots: {recurrence_time_slots}")
             logger.info(f"Contact info: {contact_info}")
 
             # Reference to the document
@@ -72,6 +75,10 @@ class FirebaseCompanyQuestionsManager:
             # Add time_slots if provided
             if time_slots is not None:
                 update_data["time_slots"] = time_slots
+            
+            # Add recurrence_time_slots if provided
+            if recurrence_time_slots is not None:
+                update_data["recurrence_time_slots"] = recurrence_time_slots
                 
             # Add contact_info if provided
             if contact_info is not None:
@@ -102,34 +109,32 @@ class FirebaseCompanyQuestionsManager:
             dsp_code: The unique identifier for the company
 
         Returns:
-            Dict containing questions, time_slots, and contact_info
+            Dict containing questions, time_slots, recurrence_time_slots, and contact_info
         """
         try:
             logger.info(f"Retrieving questions for dsp_code: {dsp_code}")
 
             # Get the document
-            doc_ref = self.collection.document(dsp_code)
-            doc = doc_ref.get()
+            doc = self.collection.document(dsp_code).get()
 
             if doc.exists:
-                doc_data = doc.to_dict()
+                # Convert to dict and remove _id field
+                data = doc.to_dict()
                 result = {
-                    "questions": doc_data.get("questions", []),
-                    "time_slots": doc_data.get("time_slots", None),
-                    "contact_info": doc_data.get("contact_info", None)
+                    "questions": data.get("questions", []),
+                    "time_slots": data.get("time_slots", []),
+                    "recurrence_time_slots": data.get("recurrence_time_slots", []),
+                    "contact_info": data.get("contact_info", None)
                 }
                 logger.info(f"Found data for dsp_code: {dsp_code}")
                 return result
             else:
                 logger.info(f"No data found for dsp_code: {dsp_code}")
-                return {"questions": [], "time_slots": None, "contact_info": None}
+                return {"questions": [], "time_slots": [], "recurrence_time_slots": [], "contact_info": None}
 
         except Exception as e:
-            logger.error(f"Error retrieving company data: {e}")
-            import traceback
-
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            return {"questions": [], "time_slots": None, "contact_info": None}
+            logger.error(f"Error retrieving questions: {e}")
+            return {"questions": [], "time_slots": [], "recurrence_time_slots": [], "contact_info": None}
 
     def update_question(
         self, dsp_code: str, question_index: int, updated_question: Dict[str, Any]
@@ -314,6 +319,76 @@ class FirebaseCompanyQuestionsManager:
 
         except Exception as e:
             logger.error(f"Error updating contact info: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+            
+    def update_recurrence_time_slots(self, dsp_code: str, recurrence_time_slots: List[str]) -> bool:
+        """
+        Update recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            recurrence_time_slots: List of recurring time slots (e.g., "Monday 9 AM - 5 PM")
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating recurrence time slots for dsp_code: {dsp_code}")
+            logger.info(f"Recurrence time slots: {recurrence_time_slots}")
+
+            # Reference to the document
+            doc_ref = self.collection.document(dsp_code)
+            
+            # Update or create the document with recurrence time slots
+            if doc_ref.get().exists:
+                doc_ref.update({"recurrence_time_slots": recurrence_time_slots})
+                logger.info(f"Updated document with recurrence time slots")
+            else:
+                doc_ref.set({"recurrence_time_slots": recurrence_time_slots})
+                logger.info(f"Created new document with recurrence time slots")
+                
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating recurrence time slots: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+            
+    def delete_recurrence_time_slots(self, dsp_code: str) -> bool:
+        """
+        Delete all recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Deleting recurrence time slots for dsp_code: {dsp_code}")
+
+            # Reference to the document
+            doc_ref = self.collection.document(dsp_code)
+            doc = doc_ref.get()
+            
+            # Check if the document exists
+            if not doc.exists:
+                logger.error(f"No document found for dsp_code: {dsp_code}")
+                return False
+
+            # Update the document to remove recurrence_time_slots (set to empty list)
+            doc_ref.update({"recurrence_time_slots": []})
+            logger.info(f"Deleted recurrence time slots for company {dsp_code}")
+                
+            return True
+
+        except Exception as e:
+            logger.error(f"Error deleting recurrence time slots: {e}")
             import traceback
 
             logger.error(f"Traceback: {traceback.format_exc()}")

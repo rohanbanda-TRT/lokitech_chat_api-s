@@ -54,21 +54,32 @@ class CompanyAdminTools:
                 dsp_code = data.get("dsp_code")
                 questions = data.get("questions", [])
                 time_slots = data.get("time_slots")
+                recurrence_time_slots = data.get("recurrence_time_slots")
                 contact_info = data.get("contact_info")
                 append = data.get("append", True)
                 
                 # Check if we're only updating time slots or contact info without questions
                 questions_provided = len(questions) > 0
                 time_slots_provided = time_slots is not None
+                recurrence_time_slots_provided = recurrence_time_slots is not None
                 contact_info_provided = contact_info is not None
                 
                 # If we're only updating time slots, use the dedicated method
-                if time_slots_provided and not questions_provided and not contact_info_provided:
+                if (time_slots_provided or recurrence_time_slots_provided) and not questions_provided and not contact_info_provided:
                     logger.info("Only time slots provided, using update_time_slots method")
-                    return self.update_time_slots(json.dumps({
+                    update_data = {
                         "dsp_code": dsp_code,
-                        "time_slots": time_slots
-                    }))
+                    }
+                    
+                    if time_slots_provided:
+                        update_data["time_slots"] = time_slots
+                        update_data["is_recurrence"] = False
+                    
+                    if recurrence_time_slots_provided:
+                        update_data["time_slots"] = recurrence_time_slots
+                        update_data["is_recurrence"] = True
+                        
+                    return self.update_time_slots(json.dumps(update_data))
                 
                 # If we're only updating contact info, use the dedicated method
                 if contact_info_provided and not questions_provided and not time_slots_provided:
@@ -84,7 +95,7 @@ class CompanyAdminTools:
                     logger.info("Replacing all questions (append=False)")
                 else:
                     # Check if we need to fetch existing data for partial updates
-                    if (time_slots_provided or contact_info_provided) and not questions_provided:
+                    if (time_slots_provided or recurrence_time_slots_provided or contact_info_provided) and not questions_provided:
                         # Fetch existing questions to avoid losing them
                         logger.info("Fetching existing questions for partial update")
                         existing_data = self.questions_manager.get_questions(dsp_code)
@@ -120,6 +131,7 @@ class CompanyAdminTools:
                     questions_dict,
                     append=append,
                     time_slots=time_slots,
+                    recurrence_time_slots=recurrence_time_slots,
                     contact_info=contact_info,
                 )
 
@@ -308,45 +320,40 @@ class CompanyAdminTools:
             if "dsp_code" in data and "time_slots" in data:
                 dsp_code = data["dsp_code"]
                 time_slots = data["time_slots"]
+                is_recurrence = data.get("is_recurrence", False)
                 
-                # Validate time slots format
-                validated_time_slots = []
-                for slot in time_slots:
-                    try:
-                        # Check if the slot already has a date in the correct format
-                        # Expected format: "May 10, 2025 9 AM - 5 PM"
-                        parts = slot.split(' ', 3)
-                        if len(parts) >= 3:
-                            # Try to parse the date part
-                            date_str = ' '.join(parts[0:3])
-                            datetime.datetime.strptime(date_str, "%B %d, %Y")
-                            # If we get here, the date is valid, so keep the slot as is
-                            validated_time_slots.append(slot)
-                        else:
-                            # Slot doesn't have a date, so we'll add today's date
-                            logger.warning(f"Time slot '{slot}' doesn't have a date, adding current date")
-                            current_date = datetime.datetime.now().strftime("%B %d, %Y")
-                            validated_time_slots.append(f"{current_date} {slot}")
-                    except ValueError:
-                        # Date format is incorrect, so we'll reformat it
-                        logger.warning(f"Time slot '{slot}' has invalid date format, adding current date")
-                        current_date = datetime.datetime.now().strftime("%B %d, %Y")
-                        validated_time_slots.append(f"{current_date} {slot}")
+                # Validate time slots
+                if not isinstance(time_slots, list):
+                    logger.error("Time slots must be a list of strings")
+                    return "Error: Time slots must be a list of strings"
                 
-                # Update the time slots
-                success = self.questions_manager.update_time_slots(
-                    dsp_code,
-                    validated_time_slots,
-                )
+                # Convert all time slots to strings if they aren't already
+                validated_time_slots = [str(slot) for slot in time_slots]
+                
+                # Update the appropriate time slots based on is_recurrence flag
+                if is_recurrence:
+                    # These are recurring time slots (e.g., "Monday 9 AM - 5 PM")
+                    success = self.questions_manager.update_recurrence_time_slots(
+                        dsp_code,
+                        validated_time_slots,
+                    )
+                    slot_type = "recurring time slots"
+                else:
+                    # These are specific date time slots (e.g., "May 10, 2025 9 AM - 5 PM")
+                    success = self.questions_manager.update_time_slots(
+                        dsp_code,
+                        validated_time_slots,
+                    )
+                    slot_type = "time slots"
 
                 if success:
                     logger.info(
-                        f"Successfully updated time slots for company {dsp_code}"
+                        f"Successfully updated {slot_type} for company {dsp_code}"
                     )
-                    return f"Successfully updated time slots for company {dsp_code}"
+                    return f"Successfully updated {slot_type} for company {dsp_code}"
                 else:
-                    logger.error("Failed to update time slots")
-                    return "Failed to update time slots. Please check if the DSP code is valid."
+                    logger.error(f"Failed to update {slot_type}")
+                    return f"Failed to update {slot_type}. Please check if the DSP code is valid."
             else:
                 logger.error("Missing required fields in input")
                 return "Error: Input must contain 'dsp_code' and 'time_slots' fields"
@@ -416,6 +423,53 @@ class CompanyAdminTools:
 
         except Exception as e:
             logger.error(f"Unexpected error in update_contact_info: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return f"Error: {str(e)}"
+            
+    def delete_recurrence_time_slots(self, input_str: str) -> str:
+        """Tool function to delete all recurring time slots for a company"""
+        try:
+            logger.info(f"Attempting to delete recurrence time slots with input: {input_str}")
+
+            # Parse the input data
+            try:
+                # If input is a string, try to parse it as JSON
+                if isinstance(input_str, str):
+                    data = json.loads(input_str)
+                # If input is already a dict, use it directly
+                elif isinstance(input_str, dict):
+                    data = input_str
+                else:
+                    logger.error(f"Unexpected input type: {type(input_str)}")
+                    return f"Error: Unexpected input type: {type(input_str)}"
+
+                logger.info(f"Parsed data: {data}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON: {e}")
+                return f"Error: Invalid JSON format - {str(e)}"
+
+            # Extract the fields
+            if "dsp_code" in data:
+                dsp_code = data["dsp_code"]
+                
+                # Delete the recurrence time slots
+                success = self.questions_manager.delete_recurrence_time_slots(dsp_code)
+
+                if success:
+                    logger.info(
+                        f"Successfully deleted recurring time slots for company {dsp_code}"
+                    )
+                    return f"Successfully deleted recurring time slots for company {dsp_code}"
+                else:
+                    logger.error("Failed to delete recurring time slots")
+                    return "Failed to delete recurring time slots. Please check if the DSP code is valid."
+            else:
+                logger.error("Missing required fields in input")
+                return "Error: Input must contain 'dsp_code' field"
+
+        except Exception as e:
+            logger.error(f"Unexpected error in delete_recurrence_time_slots: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: {str(e)}"
