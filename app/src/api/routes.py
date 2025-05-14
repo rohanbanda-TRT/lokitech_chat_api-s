@@ -7,6 +7,7 @@ from ..agents import ContentGeneratorAgent, DriverScreeningAgent, CompanyAdminAg
 from typing import Optional, List, Dict
 from ..managers.company_questions_factory import get_company_questions_manager
 from ..models.question_models import Question
+from ..utils.time_slot_parser import format_recurrence_time_slots
 import logging
 import re
 import json
@@ -278,6 +279,92 @@ async def get_company_questions(dsp_code: str):
         return {"dsp_code": dsp_code, "questions": questions}
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/formatted-questions/{dsp_code}",
+    summary="Get human-readable formatted questions",
+    description="Retrieve the list of questions and criteria in a human-readable format for a specific company",
+    tags=["Admin"]
+)
+async def get_formatted_questions(dsp_code: str):
+    try:
+        questions_manager = get_company_questions_manager()
+        company_data = questions_manager.get_questions(dsp_code)
+        questions = company_data.get("questions", [])
+        
+        if not questions:
+            return {
+                "dsp_code": dsp_code,
+                "formatted_questions": "No screening questions available for this company."
+            }
+        
+        # Format questions in a human-readable format
+        formatted_text = f"Screening Questions for Company {dsp_code}:\n\n"
+        
+        for i, question in enumerate(questions, 1):
+            formatted_text += f"{i}. {question.get('question_text', 'No question text')}\n"
+            
+            # Add criteria if available
+            criteria = question.get('criteria', '')
+            if criteria:
+                formatted_text += f"   Criteria: {criteria}\n"
+            
+            # Add a blank line between questions
+            formatted_text += "\n"
+        
+        return {
+            # "dsp_code": dsp_code,
+            "formatted_questions": formatted_text.strip()
+        }
+
+    except Exception as e:
+        logger.error(f"Error formatting questions: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/company-time-slots/{dsp_code}",
+    summary="Get company time slots",
+    description="Retrieve the available time slots for a specific company",
+    tags=["Admin"]
+)
+async def get_company_time_slots(dsp_code: str):
+    try:
+        questions_manager = get_company_questions_manager()
+        company_data = questions_manager.get_questions(dsp_code)
+        
+        # Get both regular and recurrence time slots
+        time_slots = company_data.get("time_slots", [])
+        recurrence_time_slots = company_data.get("recurrence_time_slots", [])
+        
+        # Format recurrence time slots with dates
+        formatted_recurrence_slots = format_recurrence_time_slots(recurrence_time_slots)
+        
+        # Combine both types of time slots
+        all_time_slots = time_slots + formatted_recurrence_slots
+        
+        if not all_time_slots:
+            return {
+                "dsp_code": dsp_code,
+                "time_slots": [],
+                "formatted_time_slots": "No available time slots for this company."
+            }
+        
+        # Create a human-readable format
+        formatted_text = f"Available Time Slots for Company {dsp_code}:\n\n"
+        for i, slot in enumerate(all_time_slots, 1):
+            formatted_text += f"{i}. {slot}\n"
+        
+        return {
+            # "dsp_code": dsp_code,
+            # "time_slots": all_time_slots,
+            "formatted_time_slots": formatted_text.strip()
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving time slots: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
