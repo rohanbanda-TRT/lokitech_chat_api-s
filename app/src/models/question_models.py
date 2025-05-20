@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+from ..utils.time_slot_parser import RecurrenceTimeSlot
 
 
 class Question(BaseModel):
@@ -34,7 +35,10 @@ class CompanyQuestions(BaseModel):
         default=None, description="Available time slots for screening with specific dates"
     )
     recurrence_time_slots: Optional[List[str]] = Field(
-        default=None, description="Recurring time slots that happen on specific days of the week"
+        default=None, description="Recurring time slots that happen on specific days of the week (legacy format)"
+    )
+    structured_recurrence_time_slots: Optional[List[RecurrenceTimeSlot]] = Field(
+        default=None, description="Structured recurring time slots with advanced pattern support"
     )
     contact_info: Optional[ContactInfo] = Field(
         default=None, description="Structured contact information for the company"

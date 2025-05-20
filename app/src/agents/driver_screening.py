@@ -16,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.tools import BaseTool, Tool, StructuredTool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from ..utils.time_slot_parser import RecurrenceTimeSlot
 
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -188,23 +189,42 @@ class DriverScreeningAgent:
             dsp_code: The unique identifier for the company
             
         Returns:
-            Tuple of (time_slots, contact_info) 
+            Tuple of (time_slots, contact_info, formatted_contact_info) 
         """
         try:
             # Get company questions which include time_slots and contact_info
             company_data = self.questions_manager.get_questions(dsp_code)
             
-            # Extract time_slots, recurrence_time_slots, and contact_info
+            # Extract time_slots, recurrence_time_slots, structured_recurrence_time_slots, and contact_info
             all_time_slots = company_data.get("time_slots", [])
             recurrence_time_slots = company_data.get("recurrence_time_slots", [])
+            structured_recurrence_time_slots = company_data.get("structured_recurrence_time_slots", [])
             contact_info = company_data.get("contact_info", {})
             
-            # Format recurrence time slots with next occurrence dates
-            from ..utils.time_slot_parser import format_recurrence_time_slots
+            # Format legacy recurrence time slots with next occurrence dates
+            from ..utils.time_slot_parser import format_recurrence_time_slots, generate_time_slots_from_recurrence
             formatted_recurrence_slots = format_recurrence_time_slots(recurrence_time_slots)
             
-            # Combine regular time slots with formatted recurrence time slots
-            all_time_slots = all_time_slots + formatted_recurrence_slots
+            # Format structured recurrence time slots
+            formatted_structured_slots = []
+            if structured_recurrence_time_slots:
+                # Convert dictionary structured recurrence time slots to RecurrenceTimeSlot objects
+                recurrence_objects = []
+                for slot_dict in structured_recurrence_time_slots:
+                    try:
+                        recurrence_objects.append(RecurrenceTimeSlot(**slot_dict))
+                    except Exception as e:
+                        logger.error(f"Error converting structured recurrence time slot to object: {e}")
+                
+                # Generate the next few occurrences from structured recurrence patterns
+                if recurrence_objects:
+                    formatted_structured_slots = generate_time_slots_from_recurrence(
+                        recurrence_objects, 
+                        num_occurrences=3
+                    )
+            
+            # Combine all time slots
+            all_time_slots = all_time_slots + formatted_recurrence_slots + formatted_structured_slots
             
             # Filter out past time slots
             current_date = datetime.datetime.now().date()
@@ -225,6 +245,13 @@ class DriverScreeningAgent:
                     # If we can't parse the date, include the slot (backward compatibility)
                     logger.warning(f"Could not parse date from time slot '{slot}': {e}")
                     valid_time_slots.append(slot)
+            
+            # Sort time slots by date
+            try:
+                valid_time_slots.sort(key=lambda x: datetime.datetime.strptime(' '.join(x.split(' ', 3)[0:3]), "%B %d, %Y"))
+            except (ValueError, IndexError):
+                # If sorting fails, keep the original order
+                logger.warning("Could not sort time slots by date, keeping original order")
             
             # Format contact info if it's a dictionary (new format)
             if isinstance(contact_info, dict) and all(key in contact_info for key in ["contact_person_name", "contact_number", "email_id"]):

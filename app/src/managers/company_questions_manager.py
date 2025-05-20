@@ -106,7 +106,7 @@ class CompanyQuestionsManager:
             dsp_code: The unique identifier for the company
 
         Returns:
-            Dict containing questions, time_slots, recurrence_time_slots, and contact_info
+            Dict containing questions, time_slots, recurrence_time_slots, structured_recurrence_time_slots, and contact_info
         """
         try:
             logger.info(f"Getting questions for dsp_code: {dsp_code}")
@@ -118,32 +118,31 @@ class CompanyQuestionsManager:
                 logger.warning(f"No questions found for dsp_code: {dsp_code}")
                 return {}
 
-            # Extract the questions, time_slots, recurrence_time_slots, and contact_info
+            # Extract the questions and other fields
             questions = company_doc.get("questions", [])
             time_slots = company_doc.get("time_slots", [])
             recurrence_time_slots = company_doc.get("recurrence_time_slots", [])
+            structured_recurrence_time_slots = company_doc.get("structured_recurrence_time_slots", [])
             contact_info = company_doc.get("contact_info", {})
 
-            # Convert ObjectId to string for JSON serialization
-            if "_id" in company_doc:
-                del company_doc["_id"]
+            logger.info(
+                f"Found {len(questions)} questions, {len(time_slots)} time slots, "
+                f"{len(recurrence_time_slots)} legacy recurrence time slots, "
+                f"{len(structured_recurrence_time_slots)} structured recurrence time slots, "
+                f"contact info: {bool(contact_info)}"
+            )
 
-            logger.info(f"Found {len(questions)} questions for dsp_code: {dsp_code}")
-            logger.info(f"Found {len(time_slots)} time slots for dsp_code: {dsp_code}")
-            logger.info(f"Found {len(recurrence_time_slots)} recurrence time slots for dsp_code: {dsp_code}")
-            logger.info(f"Found contact info: {contact_info}")
-
-            # Return a dictionary with all the information
+            # Return as a dictionary
             return {
-                "dsp_code": dsp_code,
                 "questions": questions,
                 "time_slots": time_slots,
                 "recurrence_time_slots": recurrence_time_slots,
+                "structured_recurrence_time_slots": structured_recurrence_time_slots,
                 "contact_info": contact_info,
             }
 
         except Exception as e:
-            logger.error(f"Error retrieving questions: {e}")
+            logger.error(f"Error getting questions: {e}")
             return {}
 
     def update_question(
@@ -341,6 +340,42 @@ class CompanyQuestionsManager:
             logger.error(f"Error updating recurrence time slots: {e}")
             return False
             
+    def update_structured_recurrence_time_slots(self, dsp_code: str, structured_recurrence_time_slots: List[Dict[str, Any]]) -> bool:
+        """
+        Update structured recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            structured_recurrence_time_slots: List of structured recurring time slots
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating structured recurrence time slots for dsp_code: {dsp_code}")
+            logger.info(f"Structured recurrence time slots: {structured_recurrence_time_slots}")
+
+            # Convert RecurrenceTimeSlot objects to dictionaries if they aren't already
+            if structured_recurrence_time_slots and hasattr(structured_recurrence_time_slots[0], "dict"):
+                slot_dicts = [slot.dict() for slot in structured_recurrence_time_slots]
+            else:
+                slot_dicts = structured_recurrence_time_slots
+
+            # Update the structured recurrence time slots
+            result = self.collection.update_one(
+                {"dsp_code": dsp_code},
+                {"$set": {"structured_recurrence_time_slots": slot_dicts}},
+                upsert=True  # Create if it doesn't exist
+            )
+
+            success = result.modified_count > 0 or result.upserted_id is not None
+            logger.info(f"Update result: {result.modified_count} documents modified, {result.upserted_id is not None} upserted")
+            return success
+
+        except Exception as e:
+            logger.error(f"Error updating structured recurrence time slots: {e}")
+            return False
+            
     def delete_recurrence_time_slots(self, dsp_code: str) -> bool:
         """
         Delete all recurring time slots for a company
@@ -363,7 +398,7 @@ class CompanyQuestionsManager:
             # Update the document to remove recurrence_time_slots
             result = self.collection.update_one(
                 {"dsp_code": dsp_code},
-                {"$set": {"recurrence_time_slots": []}}
+                {"$set": {"recurrence_time_slots": [], "structured_recurrence_time_slots": []}}
             )
 
             success = result.modified_count > 0

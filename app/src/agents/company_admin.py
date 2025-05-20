@@ -73,6 +73,11 @@ class UpdateTimeSlotsToolInput(BaseModel):
     is_recurrence: bool = Field(default=False, description="Whether these are recurring time slots")
 
 
+class UpdateStructuredRecurrenceToolInput(BaseModel):
+    dsp_code: str = Field(description="Unique identifier for the company")
+    recurrence_patterns: List[str] = Field(description="List of recurrence patterns in natural language format")
+
+
 class UpdateContactInfoToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
     contact_info: Dict[str, Any] = Field(description="Structured contact information with contact_person_name, contact_number, and email_id fields")
@@ -144,6 +149,13 @@ class CompanyAdminAgent:
             """Update time slots"""
             return self.admin_tools.update_time_slots(json.dumps(data.model_dump()))
             
+        def update_structured_recurrence_tool(data: UpdateStructuredRecurrenceToolInput) -> str:
+            """Update structured recurrence patterns"""
+            return self.admin_tools.update_time_slots(json.dumps({
+                "dsp_code": data.dsp_code,
+                "recurrence_patterns": data.recurrence_patterns
+            }))
+            
         def update_contact_info_tool(data: UpdateContactInfoToolInput) -> str:
             """Update contact info"""
             # Ensure contact_info has all required fields
@@ -199,14 +211,19 @@ class CompanyAdminAgent:
                 description="Update time slots",
             ),
             StructuredTool.from_function(
+                func=update_structured_recurrence_tool,
+                name="update_structured_recurrence",
+                description="Update structured recurrence patterns",
+            ),
+            StructuredTool.from_function(
                 func=update_contact_info_tool,
                 name="update_contact_info",
-                description="Update contact info",
+                description="Update contact information",
             ),
             StructuredTool.from_function(
                 func=delete_recurrence_time_slots_tool,
                 name="delete_recurrence_time_slots",
-                description="Delete all recurring time slots for a company",
+                description="Delete all recurring time slots",
             ),
         ]
 

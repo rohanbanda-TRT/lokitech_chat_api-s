@@ -24,6 +24,7 @@ class FirebaseCompanyQuestionsManager:
     def create_questions(
         self, dsp_code: str, questions: List[Dict[str, Any]], append: bool = True,
         time_slots: Optional[List[str]] = None, recurrence_time_slots: Optional[List[str]] = None,
+        structured_recurrence_time_slots: Optional[List[Dict[str, Any]]] = None,
         contact_info: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
@@ -35,6 +36,7 @@ class FirebaseCompanyQuestionsManager:
             append: If True, append new questions to existing ones; if False, replace them
             time_slots: Optional list of available time slots with specific dates
             recurrence_time_slots: Optional list of recurring time slots (e.g., "Monday 9 AM - 5 PM")
+            structured_recurrence_time_slots: Optional list of structured recurring time slots
             contact_info: Optional contact information as a dictionary with contact_person_name, contact_number, and email_id
 
         Returns:
@@ -46,6 +48,7 @@ class FirebaseCompanyQuestionsManager:
             logger.info(f"Append mode: {append}")
             logger.info(f"Time slots: {time_slots}")
             logger.info(f"Recurrence time slots: {recurrence_time_slots}")
+            logger.info(f"Structured recurrence time slots: {structured_recurrence_time_slots}")
             logger.info(f"Contact info: {contact_info}")
 
             # Reference to the document
@@ -80,6 +83,15 @@ class FirebaseCompanyQuestionsManager:
             if recurrence_time_slots is not None:
                 update_data["recurrence_time_slots"] = recurrence_time_slots
                 
+            # Add structured_recurrence_time_slots if provided
+            if structured_recurrence_time_slots is not None:
+                # Convert RecurrenceTimeSlot objects to dictionaries if they aren't already
+                if structured_recurrence_time_slots and hasattr(structured_recurrence_time_slots[0], "dict"):
+                    slot_dicts = [slot.dict() for slot in structured_recurrence_time_slots]
+                else:
+                    slot_dicts = structured_recurrence_time_slots
+                update_data["structured_recurrence_time_slots"] = slot_dicts
+                
             # Add contact_info if provided
             if contact_info is not None:
                 update_data["contact_info"] = contact_info
@@ -109,7 +121,7 @@ class FirebaseCompanyQuestionsManager:
             dsp_code: The unique identifier for the company
 
         Returns:
-            Dict containing questions, time_slots, recurrence_time_slots, and contact_info
+            Dict containing questions, time_slots, recurrence_time_slots, structured_recurrence_time_slots, and contact_info
         """
         try:
             logger.info(f"Retrieving questions for dsp_code: {dsp_code}")
@@ -124,17 +136,30 @@ class FirebaseCompanyQuestionsManager:
                     "questions": data.get("questions", []),
                     "time_slots": data.get("time_slots", []),
                     "recurrence_time_slots": data.get("recurrence_time_slots", []),
+                    "structured_recurrence_time_slots": data.get("structured_recurrence_time_slots", []),
                     "contact_info": data.get("contact_info", None)
                 }
                 logger.info(f"Found data for dsp_code: {dsp_code}")
                 return result
             else:
                 logger.info(f"No data found for dsp_code: {dsp_code}")
-                return {"questions": [], "time_slots": [], "recurrence_time_slots": [], "contact_info": None}
+                return {
+                    "questions": [], 
+                    "time_slots": [], 
+                    "recurrence_time_slots": [], 
+                    "structured_recurrence_time_slots": [],
+                    "contact_info": None
+                }
 
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
-            return {"questions": [], "time_slots": [], "recurrence_time_slots": [], "contact_info": None}
+            return {
+                "questions": [], 
+                "time_slots": [], 
+                "recurrence_time_slots": [], 
+                "structured_recurrence_time_slots": [],
+                "contact_info": None
+            }
 
     def update_question(
         self, dsp_code: str, question_index: int, updated_question: Dict[str, Any]
@@ -359,6 +384,47 @@ class FirebaseCompanyQuestionsManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
             
+    def update_structured_recurrence_time_slots(self, dsp_code: str, structured_recurrence_time_slots: List[Dict[str, Any]]) -> bool:
+        """
+        Update structured recurring time slots for a company
+
+        Args:
+            dsp_code: The unique identifier for the company
+            structured_recurrence_time_slots: List of structured recurring time slots
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating structured recurrence time slots for dsp_code: {dsp_code}")
+            logger.info(f"Structured recurrence time slots: {structured_recurrence_time_slots}")
+
+            # Convert RecurrenceTimeSlot objects to dictionaries if they aren't already
+            if structured_recurrence_time_slots and hasattr(structured_recurrence_time_slots[0], "dict"):
+                slot_dicts = [slot.dict() for slot in structured_recurrence_time_slots]
+            else:
+                slot_dicts = structured_recurrence_time_slots
+
+            # Reference to the document
+            doc_ref = self.collection.document(dsp_code)
+            
+            # Update or create the document with structured recurrence time slots
+            if doc_ref.get().exists:
+                doc_ref.update({"structured_recurrence_time_slots": slot_dicts})
+                logger.info(f"Updated document with structured recurrence time slots")
+            else:
+                doc_ref.set({"structured_recurrence_time_slots": slot_dicts})
+                logger.info(f"Created new document with structured recurrence time slots")
+                
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating structured recurrence time slots: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+            
     def delete_recurrence_time_slots(self, dsp_code: str) -> bool:
         """
         Delete all recurring time slots for a company
@@ -381,9 +447,12 @@ class FirebaseCompanyQuestionsManager:
                 logger.error(f"No document found for dsp_code: {dsp_code}")
                 return False
 
-            # Update the document to remove recurrence_time_slots (set to empty list)
-            doc_ref.update({"recurrence_time_slots": []})
-            logger.info(f"Deleted recurrence time slots for company {dsp_code}")
+            # Update the document to remove both legacy and structured recurrence time slots
+            doc_ref.update({
+                "recurrence_time_slots": [],
+                "structured_recurrence_time_slots": []
+            })
+            logger.info(f"Deleted all recurrence time slots for company {dsp_code}")
                 
             return True
 
