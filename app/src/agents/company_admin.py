@@ -15,7 +15,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.tools import BaseTool, Tool, StructuredTool
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -75,7 +75,20 @@ class UpdateTimeSlotsToolInput(BaseModel):
 
 class UpdateStructuredRecurrenceToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
-    recurrence_patterns: List[str] = Field(description="List of recurrence patterns in natural language format")
+    structured_recurrence_patterns: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="List of structured recurrence patterns with fields like pattern_type, day_of_week, etc."
+    )
+    recurrence_patterns: Optional[List[str]] = Field(
+        default=None,
+        description="List of recurrence patterns in natural language format (legacy field)"
+    )
+    
+    @model_validator(mode='after')
+    def check_at_least_one_pattern_field(self) -> 'UpdateStructuredRecurrenceToolInput':
+        if self.structured_recurrence_patterns is None and self.recurrence_patterns is None:
+            raise ValueError("Either structured_recurrence_patterns or recurrence_patterns must be provided")
+        return self
 
 
 class UpdateContactInfoToolInput(BaseModel):
@@ -151,10 +164,19 @@ class CompanyAdminAgent:
             
         def update_structured_recurrence_tool(data: UpdateStructuredRecurrenceToolInput) -> str:
             """Update structured recurrence patterns"""
-            return self.admin_tools.update_time_slots(json.dumps({
-                "dsp_code": data.dsp_code,
-                "recurrence_patterns": data.recurrence_patterns
-            }))
+            # Prepare the data to send to the admin tools
+            payload = {
+                "dsp_code": data.dsp_code
+            }
+            
+            # Use structured_recurrence_patterns if provided
+            if data.structured_recurrence_patterns is not None:
+                payload["structured_recurrence_patterns"] = data.structured_recurrence_patterns
+            # Fall back to recurrence_patterns if structured_recurrence_patterns is not provided
+            elif data.recurrence_patterns is not None:
+                payload["recurrence_patterns"] = data.recurrence_patterns
+                
+            return self.admin_tools.update_time_slots(json.dumps(payload))
             
         def update_contact_info_tool(data: UpdateContactInfoToolInput) -> str:
             """Update contact info"""

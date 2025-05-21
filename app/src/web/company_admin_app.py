@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import json
 import requests
 import streamlit as st
 
@@ -133,15 +134,32 @@ def main():
                     f"http://127.0.0.1:8000/company-questions/{dsp_code}"
                 )
                 if response.status_code == 200:
-                    questions = response.json().get("questions", [])
+                    response_data = response.json()
+                    # Process the response data
+                    if isinstance(response_data, dict):
+                        # The API now returns the questions array directly
+                        questions = response_data.get("questions", [])
+                        time_slots = response_data.get("time_slots", [])
+                        contact_info = response_data.get("contact_info", {})
+                    else:
+                        st.error("Error: Unexpected response format")
+                        questions = []
+                    
+                    # Display the questions in a user-friendly format
                     if questions:
+                        # The backend now ensures questions is always a properly formatted list
                         for i, q in enumerate(questions):
-                            st.write(f"{i+1}. {q.get('question_text')} (Required)")
-                            if "criteria" in q and q["criteria"]:
-                                st.markdown(f"   - **Criteria:** {q.get('criteria')}")
+                            try:
+                                # Get question text with fallback
+                                question_text = q.get('question_text', 'No question text')
+                                st.write(f"{i+1}. {question_text} (Required)")
+                                
+                                # Get criteria with fallback
+                                criteria = q.get('criteria', 'Not specified')
+                                st.markdown(f"   - **Criteria:** {criteria}")
                                 st.divider()
-                            else:
-                                st.markdown(f"   - **Criteria:** Not specified")
+                            except Exception as e:
+                                st.error(f"Error processing question {i+1}: {str(e)}")
                                 st.divider()
                     else:
                         st.info("No questions found for this company")

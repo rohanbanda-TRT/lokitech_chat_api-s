@@ -132,8 +132,33 @@ class FirebaseCompanyQuestionsManager:
             if doc.exists:
                 # Convert to dict and remove _id field
                 data = doc.to_dict()
+                
+                # Get questions and ensure they're in a consistent format
+                questions = data.get("questions", [])
+                formatted_questions = []
+                
+                # Process questions to ensure consistent format
+                if isinstance(questions, list):
+                    for q in questions:
+                        if isinstance(q, dict):
+                            formatted_questions.append(q)
+                        elif isinstance(q, str):
+                            try:
+                                # Try to parse as JSON
+                                q_dict = json.loads(q)
+                                formatted_questions.append(q_dict)
+                            except json.JSONDecodeError:
+                                # If not JSON, create a simple question object
+                                formatted_questions.append({"question_text": q, "criteria": "Not specified"})
+                        else:
+                            # For any other type, convert to string
+                            formatted_questions.append({"question_text": str(q), "criteria": "Not specified"})
+                elif isinstance(questions, dict):
+                    # If it's a single dictionary, add it as a question
+                    formatted_questions.append(questions)
+                
                 result = {
-                    "questions": data.get("questions", []),
+                    "questions": formatted_questions,
                     "time_slots": data.get("time_slots", []),
                     "recurrence_time_slots": data.get("recurrence_time_slots", []),
                     "structured_recurrence_time_slots": data.get("structured_recurrence_time_slots", []),
@@ -153,6 +178,8 @@ class FirebaseCompanyQuestionsManager:
 
         except Exception as e:
             logger.error(f"Error retrieving questions: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return {
                 "questions": [], 
                 "time_slots": [], 

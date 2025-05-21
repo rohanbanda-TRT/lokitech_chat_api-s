@@ -319,118 +319,74 @@ class CompanyAdminTools:
             # Extract the fields
             if "dsp_code" in data:
                 dsp_code = data["dsp_code"]
-                time_slots = data.get("time_slots", [])
-                is_recurrence = data.get("is_recurrence", False)
                 
                 # For structured recurrence patterns
-                if "recurrence_patterns" in data:
-                    from ..utils.time_slot_parser import parse_recurrence_pattern, RecurrenceTimeSlot
+                if "structured_recurrence_patterns" in data:
+                    from ..utils.time_slot_parser import RecurrenceTimeSlot
                     
-                    recurrence_patterns = data["recurrence_patterns"]
                     structured_patterns = []
-                    legacy_patterns = []
                     
-                    # First pass: Parse all patterns
-                parsed_patterns = []
-                for pattern_text in recurrence_patterns:
-                    # Parse the pattern text into a structured format
-                    structured_pattern = parse_recurrence_pattern(pattern_text)
-                    if structured_pattern:
-                        parsed_patterns.append(structured_pattern)
-                    else:
-                        # If parsing fails, store as legacy format
-                        legacy_patterns.append(pattern_text)
-                
-                # Second pass: Group similar patterns by day_of_week and time
-                pattern_groups = {}
-                for pattern in parsed_patterns:
-                    if pattern.pattern_type == "monthly" and pattern.day_of_week and pattern.week_of_month:
-                        # Create a key based on day_of_week and time
-                        key = f"{pattern.day_of_week.lower()}_{pattern.time}"
-                        if key not in pattern_groups:
-                            pattern_groups[key] = []
-                        pattern_groups[key].append(pattern)
-                    else:
-                        # Add non-monthly patterns directly
-                        structured_patterns.append(pattern)
-                
-                # Third pass: Combine patterns with the same day_of_week and time
-                for key, patterns in pattern_groups.items():
-                    if len(patterns) > 1:
-                        # Combine multiple patterns into one with a list of week_of_month values
-                        week_positions = []
-                        for pattern in patterns:
-                            if isinstance(pattern.week_of_month, list):
-                                week_positions.extend(pattern.week_of_month)
-                            else:
-                                week_positions.append(pattern.week_of_month)
+                    # Process the structured recurrence patterns directly
+                    for pattern_data in data["structured_recurrence_patterns"]:
+                        try:
+                            # Create RecurrenceTimeSlot directly from the data provided by the agent
+                            structured_pattern = RecurrenceTimeSlot(**pattern_data)
+                            structured_patterns.append(structured_pattern)
+                        except Exception as e:
+                            logger.error(f"Failed to create RecurrenceTimeSlot from data: {pattern_data}. Error: {e}")
+                    
+                    # Update with the structured patterns if any were successfully created
+                    if structured_patterns:
+                        logger.info(f"Updating with {len(structured_patterns)} structured patterns")
+                        for pattern in structured_patterns:
+                            logger.info(f"Pattern: {pattern}")
                         
-                        # Create a new pattern with combined week positions
-                        combined_pattern = RecurrenceTimeSlot(
-                            pattern_type="monthly",
-                            day_of_week=patterns[0].day_of_week,
-                            week_of_month=week_positions,
-                            time=patterns[0].time
+                        success = self.questions_manager.update_structured_recurrence_time_slots(
+                            dsp_code, structured_patterns
                         )
-                        structured_patterns.append(combined_pattern)
+                        
+                        if success:
+                            logger.info(f"Successfully updated structured recurring time slots for company {dsp_code}")
+                            return f"Successfully updated structured recurring time slots for company {dsp_code}"
+                        else:
+                            logger.error("Failed to update structured recurring time slots")
+                            return "Failed to update structured recurring time slots. Please check if the DSP code is valid."
                     else:
-                        # Add single patterns directly
-                        structured_patterns.append(patterns[0])
+                        logger.error("No valid structured recurrence patterns provided")
+                        return "Error: No valid structured recurrence patterns could be created from the input data"
                 
-                # Update with the structured patterns if any were successfully parsed
-                if structured_patterns:
-                    logger.info(f"Updating with {len(structured_patterns)} structured patterns")
-                    for pattern in structured_patterns:
-                        logger.info(f"Pattern: {pattern}")
+                # For legacy time slots
+                elif "time_slots" in data:
+                    time_slots = data["time_slots"]
+                    is_recurrence = data.get("is_recurrence", False)
                     
-                    success = self.questions_manager.update_structured_recurrence_time_slots(
-                        dsp_code, structured_patterns
-                    )
-                    
-                    if not success:
-                        logger.error("Failed to update structured recurring time slots")
-                        return "Failed to update structured recurring time slots. Please check if the DSP code is valid."
-                    
-                    # Update with legacy patterns if any couldn't be parsed
-                    if legacy_patterns:
+                    if is_recurrence:
+                        # Update recurrence time slots (legacy format)
                         success = self.questions_manager.update_recurrence_time_slots(
-                            dsp_code, legacy_patterns
+                            dsp_code, time_slots
                         )
                         
-                        if not success:
-                            logger.error("Failed to update legacy recurring time slots")
-                            return "Failed to update legacy recurring time slots. Please check if the DSP code is valid."
-                    
-                    logger.info(f"Successfully updated recurring time slots for company {dsp_code}")
-                    return f"Successfully updated recurring time slots for company {dsp_code}"
-                elif is_recurrence:
-                    # Update recurrence time slots (legacy format)
-                    success = self.questions_manager.update_recurrence_time_slots(
-                        dsp_code, time_slots
-                    )
-                    
-                    if success:
-                        logger.info(
-                            f"Successfully updated recurring time slots for company {dsp_code}"
-                        )
-                        return f"Successfully updated recurring time slots for company {dsp_code}"
+                        if success:
+                            logger.info(f"Successfully updated recurring time slots for company {dsp_code}")
+                            return f"Successfully updated recurring time slots for company {dsp_code}"
+                        else:
+                            logger.error("Failed to update recurring time slots")
+                            return "Failed to update recurring time slots. Please check if the DSP code is valid."
                     else:
-                        logger.error("Failed to update recurring time slots")
-                        return "Failed to update recurring time slots. Please check if the DSP code is valid."
+                        # Update regular time slots
+                        success = self.questions_manager.update_time_slots(
+                            dsp_code, time_slots
+                        )
+                        
+                        if success:
+                            logger.info(f"Successfully updated time slots for company {dsp_code}")
+                            return f"Successfully updated time slots for company {dsp_code}"
+                        else:
+                            logger.error("Failed to update time slots")
+                            return "Failed to update time slots. Please check if the DSP code is valid."
                 else:
-                    # Update regular time slots
-                    success = self.questions_manager.update_time_slots(
-                        dsp_code, time_slots
-                    )
-                    
-                    if success:
-                        logger.info(
-                            f"Successfully updated time slots for company {dsp_code}"
-                        )
-                        return f"Successfully updated time slots for company {dsp_code}"
-                    else:
-                        logger.error("Failed to update time slots")
-                        return "Failed to update time slots. Please check if the DSP code is valid."
+                    logger.error("Missing time_slots or structured_recurrence_patterns in input")
+                    return "Error: Input must contain either 'time_slots' or 'structured_recurrence_patterns' field"
             else:
                 logger.error("Missing required fields in input")
                 return "Error: Input must contain 'dsp_code' field"

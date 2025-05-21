@@ -18,7 +18,7 @@ class RecurrenceTimeSlot(BaseModel):
     """Model for a recurring time slot with advanced patterns"""
     
     pattern_type: str = Field(
-        description="Type of recurrence pattern (daily, weekly, monthly, yearly)"
+        description="Type of recurrence pattern (daily, weekly, monthly, yearly, seasonal)"
     )
     day_of_week: Optional[str] = Field(
         default=None, 
@@ -32,12 +32,24 @@ class RecurrenceTimeSlot(BaseModel):
         default=None,
         description="Day of month for monthly patterns (1-31)"
     )
-    month: Optional[str] = Field(
+    month: Optional[Union[str, List[str]]] = Field(
         default=None,
-        description="Month for yearly patterns (January, February, etc.)"
+        description="Month(s) for yearly or seasonal patterns (January, February, etc.). Can be a single string or a list of strings."
     )
-    time: str = Field(
-        description="Time of day in format 'HH:MM AM/PM'"
+    start_time: str = Field(
+        description="Start time in format 'HH:MM AM/PM'"
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        description="End time in format 'HH:MM AM/PM'. If None, this is a point-in-time event."
+    )
+    time: Optional[str] = Field(
+        default=None,
+        description="Legacy field for backward compatibility. Format: 'HH:MM AM/PM' or 'HH:MM AM - HH:MM PM'"
+    )
+    start_date: Optional[str] = Field(
+        default=None,
+        description="Optional start date for the recurrence (YYYY-MM-DD)"
     )
     end_date: Optional[str] = Field(
         default=None,
@@ -205,95 +217,39 @@ def format_company_time_slot(time_slot_text: str) -> Optional[str]:
         return None
 
 
-def parse_recurrence_pattern(recurrence_text: str) -> Optional[RecurrenceTimeSlot]:
+def parse_time_range(time_text: str) -> Tuple[str, Optional[str]]:
     """
-    Parse a text description of a recurrence pattern into a structured RecurrenceTimeSlot.
+    Parse a time range string into start and end times.
     
     Args:
-        recurrence_text: Text description of recurrence (e.g., "First Monday of every month at 1 PM")
+        time_text: Time string (e.g., "9 AM", "12 PM - 2 PM", "9:30 AM - 11:30 AM")
         
     Returns:
-        RecurrenceTimeSlot object or None if parsing fails
+        Tuple of (start_time, end_time) where end_time may be None
     """
-    try:
-        # Parse weekly patterns (e.g., "Every Monday at 9 AM")
-        weekly_pattern = re.match(r'(?:Every\s+)?(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if weekly_pattern:
-            day_of_week = weekly_pattern.group(1)
-            time = weekly_pattern.group(2)
-            return RecurrenceTimeSlot(
-                pattern_type="weekly",
-                day_of_week=day_of_week,
-                time=time
-            )
+    # Check if it's a time range with a dash
+    time_range_match = re.match(r'(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(\d{1,2}(?::\d{2})?\s*[AP]M)', time_text, re.IGNORECASE)
+    if time_range_match:
+        return time_range_match.group(1).strip(), time_range_match.group(2).strip()
+    
+    # Check if it's a time range without AM/PM in the first part (e.g., "12 - 2 PM")
+    short_range_match = re.match(r'(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?\s*[AP]M)', time_text, re.IGNORECASE)
+    if short_range_match:
+        start_hour = short_range_match.group(1).strip()
+        end_time = short_range_match.group(2).strip()
         
-        # Parse monthly patterns with multiple week positions (e.g., "First and third Monday of every month at 1 PM")
-        multiple_week_pattern = re.match(r'((?:First|Second|Third|Fourth|Last)(?:\s+and\s+(?:First|Second|Third|Fourth|Last))*)\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+of\s+every\s+month\s+at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if multiple_week_pattern:
-            week_positions_text = multiple_week_pattern.group(1).lower()
-            day_of_week = multiple_week_pattern.group(2)
-            time = multiple_week_pattern.group(3)
-            
-            # Extract individual week positions
-            week_positions = [pos.strip() for pos in re.split(r'\s+and\s+', week_positions_text)]
-            
-            return RecurrenceTimeSlot(
-                pattern_type="monthly",
-                week_of_month=week_positions if len(week_positions) > 1 else week_positions[0],
-                day_of_week=day_of_week,
-                time=time
-            )
+        # Extract AM/PM from end time
+        end_ampm = re.search(r'([AP]M)', end_time, re.IGNORECASE).group(1)
         
-        # Parse monthly patterns with single week position (e.g., "First Monday of every month at 1 PM")
-        monthly_week_pattern = re.match(r'(First|Second|Third|Fourth|Last)\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+of\s+every\s+month\s+at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if monthly_week_pattern:
-            week_position = monthly_week_pattern.group(1)
-            day_of_week = monthly_week_pattern.group(2)
-            time = monthly_week_pattern.group(3)
-            return RecurrenceTimeSlot(
-                pattern_type="monthly",
-                week_of_month=week_position.lower(),
-                day_of_week=day_of_week,
-                time=time
-            )
-        
-        # Parse monthly patterns with specific day (e.g., "15th of every month at 2 PM")
-        monthly_day_pattern = re.match(r'(\d{1,2})(?:st|nd|rd|th)?\s+of\s+every\s+month\s+at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if monthly_day_pattern:
-            day_of_month = int(monthly_day_pattern.group(1))
-            time = monthly_day_pattern.group(2)
-            return RecurrenceTimeSlot(
-                pattern_type="monthly",
-                day_of_month=day_of_month,
-                time=time
-            )
-        
-        # Parse yearly patterns (e.g., "January 15 every year at 3 PM")
-        yearly_pattern = re.match(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(?:every\s+year\s+)?at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if yearly_pattern:
-            month = yearly_pattern.group(1)
-            day_of_month = int(yearly_pattern.group(2))
-            time = yearly_pattern.group(3)
-            return RecurrenceTimeSlot(
-                pattern_type="yearly",
-                month=month,
-                day_of_month=day_of_month,
-                time=time
-            )
-        
-        # Parse daily patterns (e.g., "Every day at 9 AM")
-        daily_pattern = re.match(r'Every\s+day\s+at\s+(\d{1,2}(?::\d{2})?\s*[AP]M)', recurrence_text, re.IGNORECASE)
-        if daily_pattern:
-            time = daily_pattern.group(1)
-            return RecurrenceTimeSlot(
-                pattern_type="daily",
-                time=time
-            )
-        
-        return None
-    except Exception as e:
-        logger.error(f"Error parsing recurrence pattern: {e}")
-        return None
+        # Construct proper start time with AM/PM
+        start_time = f"{start_hour} {end_ampm}"
+        return start_time, end_time
+    
+    # Single time point
+    return time_text.strip(), None
+
+# The parse_recurrence_pattern function has been removed since we're now having the agent
+# directly create RecurrenceTimeSlot objects with the appropriate fields
 
 
 def calculate_week_position_date(from_date, week_position, day_of_week, hour, minute):
@@ -386,8 +342,14 @@ def get_next_occurrence(recurrence_slot: RecurrenceTimeSlot, from_date: Optional
         from_date = datetime.datetime.now()
     
     try:
+        # Use start_time for calculations (preferred over legacy time field)
+        time_str = recurrence_slot.start_time if recurrence_slot.start_time else recurrence_slot.time
+        if not time_str:
+            logger.error("No valid time found in recurrence slot")
+            return None
+            
         # Parse the time
-        time_parts = re.match(r'(\d{1,2})(?::(\d{2}))?\s*([AP]M)', recurrence_slot.time, re.IGNORECASE)
+        time_parts = re.match(r'(\d{1,2})(?::(\d{2}))?\s*([AP]M)', time_str, re.IGNORECASE)
         if not time_parts:
             return None
         
@@ -418,6 +380,44 @@ def get_next_occurrence(recurrence_slot: RecurrenceTimeSlot, from_date: Optional
             
             next_date = from_date + datetime.timedelta(days=days_ahead)
             return next_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+        elif recurrence_slot.pattern_type == "seasonal" and recurrence_slot.day_of_week and recurrence_slot.month:
+            # For seasonal patterns (e.g., "Every Tuesday in August")
+            day_of_week_index = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].index(recurrence_slot.day_of_week.lower())
+            month_index = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"].index(recurrence_slot.month.lower()) + 1
+            
+            # Start with current date
+            current_year = from_date.year
+            
+            # If we're past the specified month this year, move to next year
+            if from_date.month > month_index:
+                current_year += 1
+                
+            # Find the first day of the specified month
+            first_day = datetime.datetime(current_year, month_index, 1, hour, minute, 0, 0)
+            
+            # Find the first occurrence of the specified day of week in that month
+            days_ahead = (day_of_week_index - first_day.weekday()) % 7
+            first_occurrence = first_day + datetime.timedelta(days=days_ahead)
+            
+            # If we're already in the right month but past all occurrences of the day of week
+            if from_date.month == month_index and from_date >= first_occurrence + datetime.timedelta(days=28):
+                # Move to next year
+                first_day = datetime.datetime(current_year + 1, month_index, 1, hour, minute, 0, 0)
+                days_ahead = (day_of_week_index - first_day.weekday()) % 7
+                first_occurrence = first_day + datetime.timedelta(days=days_ahead)
+            
+            # Find the next occurrence after from_date
+            current_occurrence = first_occurrence
+            while current_occurrence.month == month_index:
+                if current_occurrence > from_date:
+                    return current_occurrence
+                current_occurrence += datetime.timedelta(days=7)
+            
+            # If no occurrence found in the current/upcoming month, move to next year
+            first_day = datetime.datetime(current_year + 1, month_index, 1, hour, minute, 0, 0)
+            days_ahead = (day_of_week_index - first_day.weekday()) % 7
+            return first_day + datetime.timedelta(days=days_ahead)
             
         elif recurrence_slot.pattern_type == "monthly":
             # For monthly patterns, handle both day-of-month and week-position formats
@@ -494,18 +494,64 @@ def generate_time_slots_from_recurrence(recurrence_slots: List[RecurrenceTimeSlo
         for _ in range(num_occurrences):
             next_date = get_next_occurrence(recurrence, current_date)
             if next_date:
-                # Format as "Month Day, Year at Time"
-                formatted_date = next_date.strftime("%B %d, %Y at %I:%M %p")
+                # Format the time part based on whether it's a range or single time
+                if recurrence.end_time:
+                    # For time ranges, format as "Month Day, Year Time1 - Time2"
+                    start_time = next_date.strftime("%I:%M %p")
+                    
+                    # Parse end time to get hours and minutes
+                    end_time_match = re.match(r'(\d{1,2})(?::(\d{2}))?\s*([AP]M)', recurrence.end_time, re.IGNORECASE)
+                    if end_time_match:
+                        end_hour = int(end_time_match.group(1))
+                        end_minute = int(end_time_match.group(2) or 0)
+                        end_ampm = end_time_match.group(3).upper()
+                        
+                        # Convert to 24-hour format
+                        if end_ampm == 'PM' and end_hour < 12:
+                            end_hour += 12
+                        elif end_ampm == 'AM' and end_hour == 12:
+                            end_hour = 0
+                            
+                        # Create end time by replacing hours and minutes in the start date
+                        end_time = next_date.replace(hour=end_hour, minute=end_minute).strftime("%I:%M %p")
+                        formatted_date = next_date.strftime("%B %d, %Y") + f" {start_time} - {end_time}"
+                    else:
+                        # Fallback if end time can't be parsed
+                        formatted_date = next_date.strftime("%B %d, %Y at %I:%M %p")
+                else:
+                    # For single time points, format as "Month Day, Year at Time"
+                    formatted_date = next_date.strftime("%B %d, %Y at %I:%M %p")
+                    
                 generated_slots.append(formatted_date)
                 # Move past this occurrence for the next iteration
                 current_date = next_date + datetime.timedelta(minutes=1)
     
-    return sorted(generated_slots, key=lambda x: datetime.datetime.strptime(x, "%B %d, %Y at %I:%M %p"))
+    # Sort by date
+    def parse_date(date_str):
+        # Try to extract the date part first
+        if ' at ' in date_str:
+            # Format: "Month Day, Year at Time"
+            date_part = date_str.split(' at ')[0]
+        elif ' - ' in date_str:
+            # Format: "Month Day, Year Time1 - Time2"
+            date_part = ' '.join(date_str.split(' ')[0:3])  # Take first 3 parts (Month, Day, Year)
+        else:
+            # Unknown format, use the whole string
+            date_part = date_str
+            
+        # Try to parse the date part
+        try:
+            return datetime.datetime.strptime(date_part, "%B %d, %Y")
+        except ValueError:
+            # Last resort: return current time to avoid errors
+            return datetime.datetime.now()
+    
+    return sorted(generated_slots, key=parse_date)
 
 
 def format_recurrence_time_slots(recurrence_time_slots: List[str]) -> List[str]:
     """
-    Format a list of recurrence time slots with their next occurrence dates.
+    Format a list of legacy recurrence time slots with their next occurrence dates.
     
     Args:
         recurrence_time_slots: List of recurring time slots (e.g., ["Monday 9 AM - 5 PM"])
@@ -519,16 +565,9 @@ def format_recurrence_time_slots(recurrence_time_slots: List[str]) -> List[str]:
     formatted_slots = []
     
     for slot in recurrence_time_slots:
-        # Try to parse as structured recurrence pattern first
-        recurrence_slot = parse_recurrence_pattern(slot)
-        if recurrence_slot:
-            # Generate the next few occurrences
-            occurrences = generate_time_slots_from_recurrence([recurrence_slot], num_occurrences=2)
-            formatted_slots.extend(occurrences)
-        else:
-            # Fall back to legacy format
-            formatted_slot = format_company_time_slot(slot)
-            if formatted_slot:
-                formatted_slots.append(formatted_slot)
+        # Use the legacy format directly
+        formatted_slot = format_company_time_slot(slot)
+        if formatted_slot:
+            formatted_slots.append(formatted_slot)
     
     return formatted_slots
