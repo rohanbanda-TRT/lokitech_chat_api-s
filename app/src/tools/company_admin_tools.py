@@ -460,11 +460,11 @@ class CompanyAdminTools:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return f"Error: {str(e)}"
             
-    def delete_recurrence_time_slots(self, input_str: str) -> str:
+    def delete_recurrence_time_slots(self, input_str: str, structured_recurrence: bool, index: int ) -> str:
         """Tool function to delete recurring time slots for a company
         
         Args:
-            input_str: JSON string containing dsp_code and structured_recurrence flag
+            input_str: JSON string containing dsp_code, structured_recurrence flag, and optional index
         """
         try:
             logger.info(f"Attempting to delete recurrence time slots with input: {input_str}")
@@ -490,22 +490,34 @@ class CompanyAdminTools:
             if "dsp_code" in data:
                 dsp_code = data["dsp_code"]
                 structured_recurrence = data.get("structured_recurrence", True)  # Default to structured
+                index = data.get("index")  # This will be None if not provided
                 
                 # Delete the recurrence time slots
                 success = self.questions_manager.delete_recurrence_time_slots(
                     dsp_code, 
-                    structured_recurrence
+                    structured_recurrence,
+                    index
                 )
 
                 slot_type = "structured" if structured_recurrence else "legacy"
                 if success:
-                    logger.info(
-                        f"Successfully deleted {slot_type} recurring time slots for company {dsp_code}"
-                    )
-                    return f"Successfully deleted {slot_type} recurring time slots for company {dsp_code}"
+                    if index is not None:
+                        logger.info(
+                            f"Successfully deleted {slot_type} recurring time slot at index {index} for company {dsp_code}"
+                        )
+                        return f"Successfully deleted {slot_type} recurring time slot at index {index} for company {dsp_code}"
+                    else:
+                        logger.info(
+                            f"Successfully deleted all {slot_type} recurring time slots for company {dsp_code}"
+                        )
+                        return f"Successfully deleted all {slot_type} recurring time slots for company {dsp_code}"
                 else:
-                    logger.error(f"Failed to delete {slot_type} recurring time slots")
-                    return f"Failed to delete {slot_type} recurring time slots. Please check if the DSP code is valid."
+                    if index is not None:
+                        logger.error(f"Failed to delete {slot_type} recurring time slot at index {index}")
+                        return f"Failed to delete {slot_type} recurring time slot at index {index}. Please check if the DSP code and index are valid."
+                    else:
+                        logger.error(f"Failed to delete {slot_type} recurring time slots")
+                        return f"Failed to delete {slot_type} recurring time slots. Please check if the DSP code is valid."
             else:
                 logger.error("Missing required fields in input")
                 return "Error: Input must contain 'dsp_code' field"

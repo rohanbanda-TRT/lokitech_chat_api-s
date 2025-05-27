@@ -58,3 +58,5 @@ class UpdateContactInfoToolInput(BaseModel):
 
 class DeleteRecurrenceTimeSlotsToolInput(BaseModel):
     dsp_code: str = Field(description="Unique identifier for the company")
+    structured_recurrence: bool = Field(default=False, description="Whether these are structured recurrence patterns")
+    index: Optional[int] = Field(description="Index of the specific time slot to delete. If not provided, all time slots will be deleted.")

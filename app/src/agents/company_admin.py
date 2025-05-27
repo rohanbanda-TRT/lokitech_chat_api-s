@@ -106,7 +106,9 @@ class CompanyAdminAgent:
             StructuredTool.from_function(
                 func=tool_functions.delete_recurrence_time_slots_tool,
                 name="delete_recurrence_time_slots",
-                description="Delete all recurring time slots",
+                description="""Delete all recurring time slots or structured 
+                recurrence time slots set the structured_recurrence to True
+                to delete structured recurrence time slots only else set it to False""",
             ),
         ]
 

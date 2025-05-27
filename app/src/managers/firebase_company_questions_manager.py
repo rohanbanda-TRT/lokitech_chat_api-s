@@ -452,37 +452,61 @@ class FirebaseCompanyQuestionsManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
             
-    def delete_recurrence_time_slots(self, dsp_code: str, structured_recurrence: bool) -> bool:
+    def delete_recurrence_time_slots(self, dsp_code: str, structured_recurrence: bool, index: int ) -> bool:
         """
-        Delete recurring time slots for a company
+        Delete recurring time slots for a company, either all or a specific one by index
 
         Args:
             dsp_code: The unique identifier for the company
             structured_recurrence: If True, delete structured recurrence slots, if False delete legacy recurrence slots
+            index: Optional index of the specific time slot to delete. If None, all time slots will be deleted.
 
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            logger.info(f"Deleting {'structured' if structured_recurrence else 'legacy'} recurrence time slots for dsp_code: {dsp_code}")
+            slot_type = 'structured' if structured_recurrence else 'legacy'
+            field_name = "structured_recurrence_time_slots" if structured_recurrence else "recurrence_time_slots"
+            
+            logger.info(f"Deleting {slot_type} recurrence time slots for dsp_code: {dsp_code}, index: {index}")
 
             # Reference to the document
             doc_ref = self.collection.document(dsp_code)
             doc = doc_ref.get()
+            logger.info(f"Document data: {doc.to_dict()}")
             
             # Check if the document exists
             if not doc.exists:
                 logger.error(f"No document found for dsp_code: {dsp_code}")
                 return False
-
-            # Update the document to remove either structured or legacy recurrence time slots
-            update_data = {
-                "structured_recurrence_time_slots": [] if structured_recurrence else doc.to_dict().get("structured_recurrence_time_slots", []),
-                "recurrence_time_slots": [] if not structured_recurrence else doc.to_dict().get("recurrence_time_slots", [])
-            }
+                
+            doc_data = doc.to_dict()
             
-            doc_ref.update(update_data)
-            logger.info(f"Deleted {'structured' if structured_recurrence else 'legacy'} recurrence time slots for company {dsp_code}")
+            # If index is provided, delete only that specific time slot
+            if index is not None:
+                time_slots = doc_data.get(field_name, [])
+                
+                # Check if the index is valid
+                if not time_slots or index < 0 or index >= len(time_slots):
+                    logger.error(f"Invalid index {index} for {slot_type} time slots. Available slots: {len(time_slots)}")
+                    return False
+                    
+                # Remove the specific time slot
+                time_slots.pop(index)
+                
+                # Update only the specific field
+                update_data = {field_name: time_slots}
+                doc_ref.update(update_data)
+                logger.info(f"Deleted {slot_type} recurrence time slot at index {index} for company {dsp_code}")
+            else:
+                # Delete all time slots of the specific type based on structured_recurrence flag
+                if structured_recurrence:
+                    update_data = {"structured_recurrence_time_slots": []}
+                else:
+                    update_data = {"recurrence_time_slots": []}
+                
+                doc_ref.update(update_data)
+                logger.info(f"Deleted all {slot_type} recurrence time slots for company {dsp_code}")
                 
             return True
 

@@ -84,15 +84,30 @@ class CompanyAdminToolFunctions:
         }
         return self.admin_tools.update_contact_info(json.dumps(input_data))
 
-    def delete_recurrence_time_slots_tool(self,data: DeleteRecurrenceTimeSlotsToolInput) -> str:
-        """Delete all recurring time slots for a company"""
+    def delete_recurrence_time_slots_tool(self, data: DeleteRecurrenceTimeSlotsToolInput) -> str:
+        """Delete recurring time slots for a company, either all or a specific one by index
+        
+        Args:
+            data (DeleteRecurrenceTimeSlotsToolInput): Input data containing dsp_code, structured_recurrence, and index,
+            structured_recurrence (bool, optional): Whether to use structured recurrence. Defaults to True.
+            Set the structured_recurrence to True to delete structured recurrence time slots only else set it to False
+            index (int, optional): Index of the time slot to delete.
+            
+        Returns:
+            str: Result of the delete operation
+        """
         try:
             # Convert the data to a JSON string
-            input_str = json.dumps({
+            input_data = {
                 "dsp_code": data.dsp_code,
-            })
+                "structured_recurrence": data.structured_recurrence,
+                "index": data.index
+            }
+            
+            input_str = json.dumps(input_data)
+            
             # Call the tool
-            return self.admin_tools.delete_recurrence_time_slots(input_str)
+            return self.admin_tools.delete_recurrence_time_slots(input_str, structured_recurrence=data.structured_recurrence, index=data.index)
         except Exception as e:
             logger.error(f"Error in delete_recurrence_time_slots_tool: {e}")
             return f"Error: {str(e)}"
