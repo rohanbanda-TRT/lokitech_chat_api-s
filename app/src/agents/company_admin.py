@@ -25,9 +25,7 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..prompts.company_admin import COMPANY_ADMIN_PROMPT
-from ..models.question_models import CompanyQuestions, Question
-from ..managers.company_questions_factory import get_company_questions_manager
-from ..tools.company_admin_tools import CompanyAdminTools
+from ..tools.company_admin_tool_functions import CompanyAdminToolFunctions
 
 # Configure logging
 logging.basicConfig(
@@ -41,63 +39,6 @@ class CompanyAdminState(TypedDict):
 
     messages: Annotated[list[BaseMessage], add_messages]
     dsp_code: Optional[str]
-
-
-# Tool input schemas
-class CreateQuestionsInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    questions: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of questions with question_text and criteria")
-    time_slots: Optional[List[str]] = Field(default=None, description="Available time slots for screening")
-    contact_info: Optional[Dict[str, Any]] = Field(default=None, description="Structured contact information with contact_person_name, contact_number, and email_id fields")
-    append: bool = Field(default=True, description="Whether to append to existing questions or replace them")
-
-
-class GetQuestionsInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-
-
-class UpdateQuestionToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    question_index: int = Field(description="Index of the question to update (0-based)")
-    updated_question: Dict[str, Any] = Field(description="Updated question data")
-
-
-class DeleteQuestionToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    question_index: int = Field(description="Index of the question to delete (0-based)")
-
-
-class UpdateTimeSlotsToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    time_slots: List[str] = Field(description="Available time slots for screening")
-    is_recurrence: bool = Field(default=False, description="Whether these are recurring time slots")
-
-
-class UpdateStructuredRecurrenceToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    structured_recurrence_patterns: Optional[List[Dict[str, Any]]] = Field(
-        default=None,
-        description="List of structured recurrence patterns with fields like pattern_type, day_of_week, etc."
-    )
-    recurrence_patterns: Optional[List[str]] = Field(
-        default=None,
-        description="List of recurrence patterns in natural language format (legacy field)"
-    )
-    
-    @model_validator(mode='after')
-    def check_at_least_one_pattern_field(self) -> 'UpdateStructuredRecurrenceToolInput':
-        if self.structured_recurrence_patterns is None and self.recurrence_patterns is None:
-            raise ValueError("Either structured_recurrence_patterns or recurrence_patterns must be provided")
-        return self
-
-
-class UpdateContactInfoToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
-    contact_info: Dict[str, Any] = Field(description="Structured contact information with contact_person_name, contact_number, and email_id fields")
-
-
-class DeleteRecurrenceTimeSlotsToolInput(BaseModel):
-    dsp_code: str = Field(description="Unique identifier for the company")
 
 
 class CompanyAdminAgent:
@@ -122,128 +63,48 @@ class CompanyAdminAgent:
         self.memory = MemorySaver()
 
         # Use the same tools as in the original implementation
-        self.admin_tools = CompanyAdminTools()
-
-        # Helper methods for tools
-        def create_questions_tool(data: CreateQuestionsInput) -> str:
-            """Create or update company questions, time slots, and contact info"""
-            # Convert to dict for the tool
-            input_data = {
-                "dsp_code": data.dsp_code,
-                "append": data.append
-            }
-            
-            # Add optional fields if provided
-            if data.questions is not None:
-                input_data["questions"] = data.questions
-            if data.time_slots is not None:
-                input_data["time_slots"] = data.time_slots
-            if data.contact_info is not None:
-                # Ensure contact_info has all required fields
-                if not all(key in data.contact_info for key in ["contact_person_name", "contact_number", "email_id"]):
-                    return "Error: Contact info must include contact_person_name, contact_number, and email_id fields"
-                input_data["contact_info"] = data.contact_info
-                
-            return self.admin_tools.create_questions(json.dumps(input_data))
-            
-        def get_questions_tool(data: GetQuestionsInput) -> str:
-            """Get company questions, time slots, and contact info"""
-            return self.admin_tools.get_questions(data.dsp_code)
-            
-        def update_question_tool(data: UpdateQuestionToolInput) -> str:
-            """Update a specific question"""
-            return self.admin_tools.update_question(json.dumps(data.model_dump()))
-            
-        def delete_question_tool(data: DeleteQuestionToolInput) -> str:
-            """Delete a specific question"""
-            return self.admin_tools.delete_question(json.dumps(data.model_dump()))
-            
-        def update_time_slots_tool(data: UpdateTimeSlotsToolInput) -> str:
-            """Update time slots"""
-            return self.admin_tools.update_time_slots(json.dumps(data.model_dump()))
-            
-        def update_structured_recurrence_tool(data: UpdateStructuredRecurrenceToolInput) -> str:
-            """Update structured recurrence patterns"""
-            # Prepare the data to send to the admin tools
-            payload = {
-                "dsp_code": data.dsp_code
-            }
-            
-            # Use structured_recurrence_patterns if provided
-            if data.structured_recurrence_patterns is not None:
-                payload["structured_recurrence_patterns"] = data.structured_recurrence_patterns
-            # Fall back to recurrence_patterns if structured_recurrence_patterns is not provided
-            elif data.recurrence_patterns is not None:
-                payload["recurrence_patterns"] = data.recurrence_patterns
-                
-            return self.admin_tools.update_time_slots(json.dumps(payload))
-            
-        def update_contact_info_tool(data: UpdateContactInfoToolInput) -> str:
-            """Update contact info"""
-            # Ensure contact_info has all required fields
-            if not all(key in data.contact_info for key in ["contact_person_name", "contact_number", "email_id"]):
-                return "Error: Contact info must include contact_person_name, contact_number, and email_id fields"
-                
-            # Convert to dict for the tool
-            input_data = {
-                "dsp_code": data.dsp_code,
-                "contact_info": data.contact_info
-            }
-            return self.admin_tools.update_contact_info(json.dumps(input_data))
-
-        def delete_recurrence_time_slots_tool(data: DeleteRecurrenceTimeSlotsToolInput) -> str:
-            """Delete all recurring time slots for a company"""
-            try:
-                # Convert the data to a JSON string
-                input_str = json.dumps({
-                    "dsp_code": data.dsp_code,
-                })
-                # Call the tool
-                return tools_obj.delete_recurrence_time_slots(input_str)
-            except Exception as e:
-                logger.error(f"Error in delete_recurrence_time_slots_tool: {e}")
-                return f"Error: {str(e)}"
-
+        # Initialize tool functions
+        tool_functions = CompanyAdminToolFunctions()
+        
         # Create the tools
-        tools_obj = CompanyAdminTools()
         self.tools = [
             StructuredTool.from_function(
-                func=create_questions_tool,
+                func=tool_functions.create_questions_tool,
                 name="create_questions",
                 description="Create or update company questions, time slots, and contact info",
             ),
             StructuredTool.from_function(
-                func=get_questions_tool,
+                func=tool_functions.get_questions_tool,
                 name="get_questions",
                 description="Get company questions, time slots, and contact info",
             ),
             StructuredTool.from_function(
-                func=update_question_tool,
+                func=tool_functions.update_question_tool,
                 name="update_question",
                 description="Update a specific question",
             ),
             StructuredTool.from_function(
-                func=delete_question_tool,
+                func=tool_functions.delete_question_tool,
                 name="delete_question",
                 description="Delete a specific question",
             ),
             StructuredTool.from_function(
-                func=update_time_slots_tool,
+                func=tool_functions.update_time_slots_tool,
                 name="update_time_slots",
                 description="Update time slots",
             ),
             StructuredTool.from_function(
-                func=update_structured_recurrence_tool,
+                func=tool_functions.update_structured_recurrence_tool,
                 name="update_structured_recurrence",
                 description="Update structured recurrence patterns",
             ),
             StructuredTool.from_function(
-                func=update_contact_info_tool,
+                func=tool_functions.update_contact_info_tool,
                 name="update_contact_info",
                 description="Update contact information",
             ),
             StructuredTool.from_function(
-                func=delete_recurrence_time_slots_tool,
+                func=tool_functions.delete_recurrence_time_slots_tool,
                 name="delete_recurrence_time_slots",
                 description="Delete all recurring time slots",
             ),

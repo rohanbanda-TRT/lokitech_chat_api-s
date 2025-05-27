@@ -461,7 +461,11 @@ class CompanyAdminTools:
             return f"Error: {str(e)}"
             
     def delete_recurrence_time_slots(self, input_str: str) -> str:
-        """Tool function to delete all recurring time slots for a company"""
+        """Tool function to delete recurring time slots for a company
+        
+        Args:
+            input_str: JSON string containing dsp_code and structured_recurrence flag
+        """
         try:
             logger.info(f"Attempting to delete recurrence time slots with input: {input_str}")
 
@@ -485,18 +489,23 @@ class CompanyAdminTools:
             # Extract the fields
             if "dsp_code" in data:
                 dsp_code = data["dsp_code"]
+                structured_recurrence = data.get("structured_recurrence", True)  # Default to structured
                 
                 # Delete the recurrence time slots
-                success = self.questions_manager.delete_recurrence_time_slots(dsp_code)
+                success = self.questions_manager.delete_recurrence_time_slots(
+                    dsp_code, 
+                    structured_recurrence
+                )
 
+                slot_type = "structured" if structured_recurrence else "legacy"
                 if success:
                     logger.info(
-                        f"Successfully deleted recurring time slots for company {dsp_code}"
+                        f"Successfully deleted {slot_type} recurring time slots for company {dsp_code}"
                     )
-                    return f"Successfully deleted recurring time slots for company {dsp_code}"
+                    return f"Successfully deleted {slot_type} recurring time slots for company {dsp_code}"
                 else:
-                    logger.error("Failed to delete recurring time slots")
-                    return "Failed to delete recurring time slots. Please check if the DSP code is valid."
+                    logger.error(f"Failed to delete {slot_type} recurring time slots")
+                    return f"Failed to delete {slot_type} recurring time slots. Please check if the DSP code is valid."
             else:
                 logger.error("Missing required fields in input")
                 return "Error: Input must contain 'dsp_code' field"
