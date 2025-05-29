@@ -331,8 +331,9 @@ class DriverScreeningAgent:
             current_status = applicant_details.get("applicantStatus", "").strip().upper()
             if current_status in ["PASSED", "FAILED"]:
                 # Create a simplified prompt for completed screenings
+                dsp_name = applicant_details.get('dspName', 'Lokiteck Logistics')
                 prompt_text = f"""
-                    You are a professional driver screening assistant for Lokitech Logistics.
+                    You are a professional driver screening assistant for {dsp_name}.
 
                     Your task is to inform {applicant_name} that their screening process is already complete.
 
@@ -369,6 +370,7 @@ class DriverScreeningAgent:
                 prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No valid time slots available")
                 prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
                 prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
+                prompt_text = prompt_text.replace("{{dsp_name}}", applicant_details.get('dspName', 'Lokiteck Logistics'))
                 
                 # Add applicant details section for the agent's reference
                 applicant_details_text = f"""
@@ -394,17 +396,14 @@ class DriverScreeningAgent:
                     "Screening Process:", f"{applicant_details_text}\nScreening Process:"
                 )
         else:
-            # Use the standard template that asks for the applicant's name
-            logger.info("Using standard prompt template (will ask for name)")
-
-            # The prompt template uses double curly braces for JSON examples
-            # We only need to replace the company_specific_questions placeholder
-            prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE.replace(
-                "{{company_specific_questions}}", company_questions_text
-            )
+            # Use the template without applicant name
+            logger.info("Using prompt template without applicant name")
+            prompt_text = DRIVER_SCREENING_PROMPT_TEMPLATE
+            prompt_text = prompt_text.replace("{{company_specific_questions}}", company_questions_text)
             prompt_text = prompt_text.replace("{{time_slots}}", ', '.join(time_slots) if time_slots else "No valid time slots available")
             prompt_text = prompt_text.replace("{{contact_info}}", contact_info if contact_info else "our hiring team")
             prompt_text = prompt_text.replace("{{current_datetime}}", current_date_str)
+            prompt_text = prompt_text.replace("{{dsp_name}}", "Lokiteck Logistics")
 
         prompt_template = ChatPromptTemplate.from_messages([
             ("system", prompt_text),
@@ -656,8 +655,8 @@ class DriverScreeningAgent:
                                 _, _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
                                 contact_info = contact_info_text if contact_info_text else "our support team"
                                 
-                                return f"Thank you for your interest in driving with Lokiteck Logistics. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
-
+                                return f"Thank you for your interest in driving with {dsp_name}. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
+                                    
                             # Format the full name from first and last name
                             applicant_name = f"{first_name} {last_name}".strip()
                             logger.info(
