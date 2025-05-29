@@ -655,6 +655,9 @@ class DriverScreeningAgent:
                                 _, _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
                                 contact_info = contact_info_text if contact_info_text else "our support team"
                                 
+                                # Extract the DSP name from applicant details
+                                dsp_name = applicant_details.get("dspName", "our company")
+                                
                                 return f"Thank you for your interest in driving with {dsp_name}. Our records show that you have already completed the screening process. If you have any questions or need assistance, please contact {contact_info}."
                                     
                             # Format the full name from first and last name
@@ -677,8 +680,21 @@ class DriverScreeningAgent:
                             _, _, contact_info_text = self._get_company_time_slots_and_contact_info(dsp_code)
                             contact_info = contact_info_text if contact_info_text else "our support team"
                             
+                            # Try to get the DSP name from the API client
+                            dsp_name = None
+                            try:
+                                # Get company data to extract DSP name
+                                company_data = self.questions_manager.get_questions(dsp_code)
+                                if company_data and "companyName" in company_data:
+                                    dsp_name = company_data.get("companyName")
+                            except Exception as e:
+                                logger.error(f"Error getting DSP name: {e}")
+                                
+                            # Use the DSP name or a default value
+                            dsp_name = dsp_name or "our company"
+                            
                             # Return a polite message to end the conversation if applicant details are not found
-                            return f"I apologize, but I couldn't find your record in our system. This could be due to a technical issue. Please contact {contact_info} for assistance. Thank you for your interest in driving with Lokiteck Logistics."
+                            return f"I'm sorry, but I could not find your record in our system. Thank you for your interest in {dsp_name}."
 
                     except Exception as e:
                         logger.error(f"Error retrieving applicant details: {e}")
