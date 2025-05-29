@@ -21,6 +21,7 @@ class ApplicantDetails(BaseModel):
     lastName: str
     mobileNumber: str
     applicantStatus: str
+    email: Optional[str] = None
     applicantID: Optional[int] = (
         None  # Add applicantID field, make it optional for backward compatibility
     )
@@ -89,7 +90,7 @@ class DSPApiClient:
             logger.error(f"Error retrieving applicant details: {e}")
             return None
 
-    def add_pre_manage_applicant(self, applicant_details: Dict[str, Any], time_slot: Optional[str] = None) -> bool:
+    def add_pre_manage_applicant(self, applicant_details: Dict[str, Any], time_slot: Optional[str] = None, email: Optional[str] = None) -> bool:
         """
         Add a pre-manage applicant to the system when they pass the screening
         
@@ -123,11 +124,14 @@ class DSPApiClient:
             
             url = f"{self.base_url}/PreManageApplicant/AddpreManageApplicants"
             
+            # Use provided email or empty string
+            email = email or ""
+            
             # Prepare the payload according to the API requirements
             payload = {
                 "FirstName": applicant_details.get("firstName", ""),
                 "LastName": applicant_details.get("lastName", ""),
-                "Email": "",  # Email will always be null as specified
+                "Email": email,  # Use email from responses
                 "MobileNumber": applicant_details.get("mobileNumber", ""),
                 "Designation": "Delivery Associate",  # Always set to this value as specified
                 "SourceOfApplication": "None",  # Always set to this value as specified
@@ -230,11 +234,20 @@ class DSPApiClient:
                         selected_time_slot = None
                         if applicant_data and "responses" in applicant_data:
                             selected_time_slot = extract_time_slot_from_responses(applicant_data["responses"])
+                            
+                        # Extract email from responses
+                        email = None
+                        if isinstance(applicant_data.get("responses", {}), dict):
+                            email = applicant_data["responses"].get("collected_email", None)
+                            
+                        # Get applicant details as dict
+                        applicant_dict = applicant_details.model_dump()
                         
                         # Call the add_pre_manage_applicant endpoint
                         self.add_pre_manage_applicant(
-                            applicant_details=applicant_details.model_dump(),
-                            time_slot=selected_time_slot
+                            applicant_details=applicant_dict,
+                            time_slot=selected_time_slot,
+                            email=email
                         )
                 
                 return True

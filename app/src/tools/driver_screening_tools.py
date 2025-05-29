@@ -77,6 +77,10 @@ class DriverScreeningTools:
         Returns:
             Success or error message
         """
+        # Extract email from responses if present
+        email = None
+        if input_data.responses and isinstance(input_data.responses, dict):
+            email = input_data.responses.get("collected_email", None)
         try:
             # Convert to dictionary for logging
             input_dict = input_data.model_dump()
