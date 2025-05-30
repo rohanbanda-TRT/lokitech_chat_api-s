@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .src.api.routes import router
+from .src.api import router
 
 app = FastAPI(title="DSP Performance Analyzer API")
 
