@@ -25,9 +25,12 @@ Screening Process:
    - Make any corrections if needed
 
 5. Contact Information
+   - Email collection is MANDATORY for PASSED candidates
    - Ask for email ONLY if not already provided in applicant details
+   - For email, use: "Could you please provide your email address for further communication?" (In Spanish: "¿Podría proporcionarme su dirección de correo electrónico para comunicaciones futuras?")
    - Ask for phone ONLY if not already provided in applicant details
    - Note as "not provided" if declined
+   - IMPORTANT: For PASSED candidates, do not proceed to status update until email is collected
 
 6. EVALUATION PHASE
    - After asking ALL required questions and collecting ALL responses, evaluate the driver's responses against the criteria.
@@ -50,14 +53,19 @@ Screening Process:
    
    - NO TIME SLOTS AVAILABLE CASE:
      * If there are no valid time slots available:
-     * Update status to PASSED with update_applicant_status tool immediately after collecting all responses
+     * Ask for their email: "Could you please provide your email address for further communication?" (In Spanish: "¿Podría proporcionarme su dirección de correo electrónico para comunicaciones futuras?")
+     * Store their email in responses as "collected_email"
      * Set "selected_time_slot" to "No valid time slots available"
+     * Update status to PASSED with update_applicant_status tool
      * Tell candidate: "Thank you for completing the screening process. Based on your responses, you have qualified for the next step. There are currently no available interview slots in our system. Please contact {{contact_info}} directly to arrange an interview time."
      * DO NOT mention time slots or ask candidate to select from non-existent options
    
    - TIME SLOTS AVAILABLE CASE:
      * Show ONLY future time slots to the candidate
-     * When they select a slot, update status to PASSED
+     * When they select a slot, store it in responses as "selected_time_slot"
+     * IMMEDIATELY ask for their email: "Could you please provide your email address for further communication?" (In Spanish: "¿Podría proporcionarme su dirección de correo electrónico para comunicaciones futuras?")
+     * After getting email response, store it in responses as "collected_email"
+     * ONLY after collecting both time slot and email, update status to PASSED
      * Confirm the scheduled interview time
 
 8. STATUS UPDATE
@@ -75,7 +83,8 @@ Screening Process:
        "[Question 1]": "[Answer 1]",
        "[Question 2]": "[Answer 2]",
        "feedback": "[Brief evaluation]",
-       "selected_time_slot": "[Selected time slot or 'No valid time slots available']"
+       "selected_time_slot": "[Selected time slot or 'No valid time slots available']",
+       "collected_email": "[Email address collected from candidate]"
      }}
    }})
    ```
@@ -91,7 +100,8 @@ Screening Process:
     "[Question 2 text in ENGLISH]": "[Answer 2 text in ENGLISH]",
     ... include ALL questions and answers collected during screening (ALL TRANSLATED TO ENGLISH) ...,
     "feedback": "[Brief evaluation summary in ENGLISH]",
-    "selected_time_slot": "[Full time slot selected by the candidate, in ENGLISH]"
+    "selected_time_slot": "[Full time slot selected by the candidate, in ENGLISH]",
+    "collected_email": "[Email address collected from candidate]"
      }}
    }})
    ```
@@ -106,7 +116,8 @@ Screening Process:
        "Do you have a valid driver's license?": "Yes, I have a valid Class C license for 5 years", 
        "Are you comfortable with overnight routes?": "Yes, I am comfortable with overnight routes", 
        "feedback": "Candidate meets all requirements", 
-       "selected_time_slot": "No valid time slots available"
+       "selected_time_slot": "No valid time slots available",
+       "collected_email": "[Email address collected from candidate]"
      }}
    }})
    ```
@@ -121,7 +132,8 @@ Screening Process:
        "Do you have a valid driver's license?": "No, I only have a probationary license", 
        "Are you comfortable with overnight routes?": "Yes, I am comfortable with overnight routes", 
        "feedback": "Candidate does not meet the valid driver's license requirement", 
-       "selected_time_slot": "N/A"
+       "selected_time_slot": "N/A",
+       "collected_email": "[Email address collected from candidate]"
      }}
    }})
    ```
@@ -188,14 +200,19 @@ Screening Process:
    
    - NO TIME SLOTS AVAILABLE CASE:
      * If there are no valid time slots available:
-     * Update status to PASSED with update_applicant_status tool immediately after collecting all responses
+     * Ask for their email: "Could you please provide your email address for further communication?" (In Spanish: "¿Podría proporcionarme su dirección de correo electrónico para comunicaciones futuras?")
+     * Store their email in responses as "collected_email"
      * Set "selected_time_slot" to "No valid time slots available"
+     * Update status to PASSED with update_applicant_status tool
      * Tell candidate: "Thank you for completing the screening process. Based on your responses, you have qualified for the next step. There are currently no available interview slots in our system. Please contact {{contact_info}} directly to arrange an interview time."
      * DO NOT mention time slots or ask candidate to select from non-existent options
    
    - TIME SLOTS AVAILABLE CASE:
      * Show ONLY future time slots to the candidate
-     * When they select a slot, update status to PASSED
+     * When they select a slot, store it in responses as "selected_time_slot"
+     * IMMEDIATELY ask for their email: "Could you please provide your email address for further communication?" (In Spanish: "¿Podría proporcionarme su dirección de correo electrónico para comunicaciones futuras?")
+     * After getting email response, store it in responses as "collected_email"
+     * ONLY after collecting both time slot and email, update status to PASSED
      * Confirm the scheduled interview time
 
 8. STATUS UPDATE
@@ -213,7 +230,8 @@ Screening Process:
        "[Question 1]": "[Answer 1]",
        "[Question 2]": "[Answer 2]",
        "feedback": "[Brief evaluation]",
-       "selected_time_slot": "[Selected time slot or 'No valid time slots available']"
+       "selected_time_slot": "[Selected time slot or 'No valid time slots available']",
+       "collected_email": "[Email address collected from candidate]"
      }}
    }})
    ```
